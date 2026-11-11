@@ -414,6 +414,8 @@ public struct Household: Codable, Hashable, Sendable {
     public var lists: [ShoppingList]
     public var log: [FoodLogEntry]
     public var stores: [Store]
+    /// Small settings that don't need their own field (kept as text so older files always open).
+    public var extras: [String: String]
     public var updatedAt: Date
 
     public init(id: UUID = UUID(), name: String = "My kitchen", members: [Member] = [Member(name: "Me")],
@@ -424,7 +426,32 @@ public struct Household: Codable, Hashable, Sendable {
         self.version = Household.currentVersion
         self.id = id; self.name = name; self.members = members; self.inventory = inventory; self.usage = usage
         self.recipes = recipes; self.hiddenBuiltIns = hiddenBuiltIns; self.plan = plan; self.planSettings = planSettings
-        self.lists = lists; self.log = log; self.stores = stores; self.updatedAt = Date()
+        self.lists = lists; self.log = log; self.stores = stores; self.extras = [:]; self.updatedAt = Date()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version, id, name, members, inventory, usage, recipes, hiddenBuiltIns, plan, planSettings, lists, log, stores, extras, updatedAt
+    }
+
+    /// Reads a saved household, filling in anything an older version of Plate didn't save.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fresh = Household()
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? Household.currentVersion
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? fresh.id
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? fresh.name
+        members = try c.decodeIfPresent([Member].self, forKey: .members) ?? fresh.members
+        inventory = try c.decodeIfPresent([InventoryItem].self, forKey: .inventory) ?? []
+        usage = try c.decodeIfPresent([UsageRecord].self, forKey: .usage) ?? []
+        recipes = try c.decodeIfPresent([Recipe].self, forKey: .recipes) ?? []
+        hiddenBuiltIns = try c.decodeIfPresent(Set<UUID>.self, forKey: .hiddenBuiltIns) ?? []
+        plan = try c.decodeIfPresent(MealPlan.self, forKey: .plan) ?? fresh.plan
+        planSettings = try c.decodeIfPresent(PlanSettings.self, forKey: .planSettings) ?? PlanSettings()
+        lists = try c.decodeIfPresent([ShoppingList].self, forKey: .lists) ?? []
+        log = try c.decodeIfPresent([FoodLogEntry].self, forKey: .log) ?? []
+        stores = try c.decodeIfPresent([Store].self, forKey: .stores) ?? Store.allCases
+        extras = try c.decodeIfPresent([String: String].self, forKey: .extras) ?? [:]
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 }
 

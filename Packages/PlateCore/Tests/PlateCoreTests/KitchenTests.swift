@@ -245,3 +245,14 @@ final class ShoppingTests: XCTestCase {
         XCTAssertEqual(back, h)
     }
 }
+
+final class HouseholdFileTests: XCTestCase {
+    func testOldFilesStillOpen() throws {
+        let json = #"{"name":"Ethan's kitchen","inventory":[]}"#
+        let h = try JSONDecoder().decode(Household.self, from: Data(json.utf8))
+        XCTAssertEqual(h.name, "Ethan's kitchen")
+        XCTAssertEqual(h.members.count, 1)
+        XCTAssertEqual(h.stores, Store.allCases)
+        XCTAssertTrue(h.extras.isEmpty)
+    }
+}

@@ -224,7 +224,7 @@ public enum RecipeTextParser {
         line.count <= 70 && line.split(separator: " ").count <= 10 && !line.hasSuffix("?")
     }
 
-    static func stripStepNumber(_ line: String) -> String {
+    public static func stripStepNumber(_ line: String) -> String {
         var s = line
         if let re = try? NSRegularExpression(pattern: #"^(?:step\s*)?\d{1,2}\s*[.):\-]?\s*"#, options: [.caseInsensitive]) {
             let ns = s as NSString

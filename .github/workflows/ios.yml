@@ -1,0 +1,122 @@
+# Builds Plate on GitHub's Macs, the same way as Gaffer.
+# - Every push and pull request: runs the core tests (Linux) and checks the app compiles (simulator build, no Apple account).
+# - Run by hand ("Run workflow") with TestFlight ticked: runs the tests, then signs the app and uploads it to TestFlight.
+#   Needs these repository secrets: APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (see README).
+name: iOS
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: Upload a build to TestFlight
+        type: boolean
+        default: true
+
+concurrency:
+  group: ios-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.testflight && 'testflight' || 'check' }}
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.testflight) }}
+
+jobs:
+  # Everything Plate decides (reading recipes, suggestions, plans, shopping lists) is plain Swift, tested on Linux.
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core tests
+        run: swift test --package-path Packages/PlateCore
+
+  ios:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.testflight) }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_27.2.app /Applications/Xcode_27.1.app /Applications/Xcode.app 2>/dev/null | head -1)
+          sudo xcode-select -s "$X"; xcodebuild -version
+      - name: Make the Xcode project
+        run: brew install xcodegen >/dev/null && xcodegen generate
+      - name: Check it builds (simulator, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project Plate.xcodeproj -scheme Plate -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/build.log" | tail -n 40 \
+            || { echo "--- compiler errors"; grep -E "error:" "$RUNNER_TEMP/build.log" | sort -u | head -80; exit 1; }
+
+  testflight:
+    needs: tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.testflight }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Use the newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_27.2.app /Applications/Xcode_27.1.app /Applications/Xcode.app 2>/dev/null | head -1)
+          sudo xcode-select -s "$X"; xcodebuild -version
+      - name: Make the Xcode project
+        run: brew install xcodegen >/dev/null && xcodegen generate
+
+      - name: Check the secrets are set
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=0
+          for v in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!v}" ]; then echo "::error::Repository secret $v is missing. GitHub → Plate → Settings → Secrets and variables → Actions. Same values as Gaffer."; missing=1; fi
+          done
+          exit $missing
+
+      - name: Note the signing certificates the account already has
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: node scripts/asc-certs.mjs list > "$RUNNER_TEMP/certs-before.txt"
+
+      - name: Sign and upload to TestFlight
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$KEY"
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          VERSION=$(cat VERSION)
+          xcodebuild -project Plate.xcodeproj -scheme Plate -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Plate.xcarchive" archive "${AUTH[@]}" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="${{ github.run_number }}" 2>&1 | tail -n 60
+          sed "s/TEAM_ID/$APPLE_TEAM_ID/" ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Plate.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" "${AUTH[@]}"
+          echo "Uploaded build ${{ github.run_number }} (version $VERSION). It appears in TestFlight once Apple finishes processing, usually 5 to 15 minutes."
+
+      # Each signed build makes Xcode create a development certificate on this throwaway Mac. Apple caps how many an
+      # account can hold, so the one this build made is revoked again. Nothing that existed before the build is touched.
+      - name: Revoke the certificate this build created
+        if: always()
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          [ -s "$RUNNER_TEMP/certs-before.txt" ] || { echo "No list from before the build, so nothing is revoked."; exit 0; }
+          node scripts/asc-certs.mjs revoke-new "$RUNNER_TEMP/certs-before.txt"

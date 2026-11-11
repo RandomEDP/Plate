@@ -275,3 +275,26 @@ final class SocialImportTests: XCTestCase {
         XCTAssertEqual(c?.text, "Protein brownies\n100g oats\n30g protein powder")
     }
 }
+
+final class OpenFoodFactsTests: XCTestCase {
+    func testParsesAProduct() {
+        let json = #"{"code":"5000128104517","product":{"brands":"Sainsbury's","product_name":"Semi Skimmed Milk","quantity":"2.272 l","nutriments":{"energy-kcal_100g":47,"proteins_100g":3.6,"carbohydrates_100g":4.8,"fat_100g":1.7}},"status":1}"#
+        let p = OpenFoodFacts.parse(Data(json.utf8), barcode: "5000128104517")!
+        XCTAssertEqual(p.name, "Semi Skimmed Milk")
+        XCTAssertEqual(p.brand, "Sainsbury's")
+        XCTAssertEqual(p.food?.id, "milk")
+        XCTAssertEqual(p.unit, .ml)
+        XCTAssertEqual(p.size ?? 0, 2272, accuracy: 0.5)
+        XCTAssertEqual(p.per100?.kcal, 47)
+    }
+
+    func testGramsAndMissingNutrition() {
+        let json = #"{"product":{"product_name":"Basmati Rice","quantity":"1kg"}}"#
+        let p = OpenFoodFacts.parse(Data(json.utf8), barcode: "1")!
+        XCTAssertEqual(p.size, 1000)
+        XCTAssertEqual(p.unit, .g)
+        XCTAssertNil(p.per100)
+        XCTAssertEqual(p.food?.id, "rice")
+        XCTAssertNil(OpenFoodFacts.parse(Data(#"{"status":0}"#.utf8), barcode: "1"))
+    }
+}
