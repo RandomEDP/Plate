@@ -66,7 +66,7 @@ GitHub → Actions → iOS → Run workflow (TestFlight ticked). The build numbe
 1. **Register the app IDs.** developer.apple.com → Certificates, Identifiers & Profiles → Identifiers → + → App IDs → App:
    - `com.randomedp.plate` (the app), with **App Groups** ticked
    - `com.randomedp.plate.share` (the share extension), with **App Groups** ticked
-2. **Register the app group.** Identifiers → + → App Groups → `group.com.randomedp.plate` (all lower case). Then on
+2. **Register the app group.** Identifiers → + → App Groups → `group.com.randomedp.plate.share` (all lower case). Then on
    each of the two app IDs, App Groups → Configure → tick it.
 3. **Create the app.** App Store Connect → Apps → + → New App: iOS, name *Plate* (or another if taken), bundle ID
    `com.randomedp.plate`, SKU `plate`.

@@ -46,7 +46,7 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
 ## 5. How it fits together
 
 - **One document per household** (`Household` in `Models.swift`), saved as JSON in the app group
-  (`group.com.randomedp.plate`) 400 ms after a change. Every record has an `id` and `updatedAt`, and decoding uses
+  (`group.com.randomedp.plate.share`) 400 ms after a change. Every record has an `id` and `updatedAt`, and decoding uses
   `decodeIfPresent` with defaults, so old files still open and sharing/sync can be added later (Ethan wants household
   sharing eventually; keep the format sync-friendly). Small settings go in `household.extras`.
 - **Food database** (`FoodDatabase.swift`): UK foods with macros per 100 g/ml, shelf life, and Sainsbury's/Costco packs
@@ -70,8 +70,8 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
 
 ## 6. In flight / next up
 
-- Ethan is doing the App Store Connect setup (README, "One-time Apple setup"), including the app group on both app IDs.
-  Then run the TestFlight workflow and fix any signing problems. Gaffer's history: the app group must be registered
-  and ticked on every bundle id, and group names are case-sensitive.
+- The app group is `group.com.randomedp.plate.share` for both the app and the extension: that's the name Ethan
+  registered (November 2026), so don't "tidy" it to `group.com.randomedp.plate` (that id was taken by an App ID by
+  mistake). The group has to be ticked on both bundle ids; group names are case-sensitive. `apple-profiles.yml` checks.
 - Household sharing between people (later).
 - Real supermarket prices (the ones in `FoodDatabase.swift` are rough, November 2026).

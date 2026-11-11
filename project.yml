@@ -30,7 +30,7 @@ targets:
     entitlements:
       path: App/Plate.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.randomedp.plate]
+        com.apple.security.application-groups: [group.com.randomedp.plate.share]
     info:
       path: App/Info.plist
       properties:
@@ -62,7 +62,7 @@ targets:
     entitlements:
       path: ShareExtension/PlateShare.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.randomedp.plate]
+        com.apple.security.application-groups: [group.com.randomedp.plate.share]
     info:
       path: ShareExtension/Info.plist
       properties:
