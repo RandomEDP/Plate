@@ -1,0 +1,90 @@
+# The Xcode project is generated from this file on GitHub's Macs (XcodeGen), so nothing Xcode-specific is committed.
+name: Plate
+options:
+  bundleIdPrefix: com.randomedp
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+packages:
+  PlateCore:
+    path: Packages/PlateCore
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Plate:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Shared
+    dependencies:
+      - package: PlateCore
+      - target: PlateShare
+    entitlements:
+      path: App/Plate.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.randomedp.plate]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Plate
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.food-and-drink
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: Plate uses the camera to scan barcodes on food you add to your kitchen.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.randomedp.plate
+            CFBundleURLSchemes: [plate]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.randomedp.plate
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  PlateShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ShareExtension
+      - Shared
+    dependencies:
+      - package: PlateCore
+    entitlements:
+      path: ShareExtension/PlateShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.randomedp.plate]
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Save to Plate
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.randomedp.plate.share
+schemes:
+  Plate:
+    build:
+      targets:
+        Plate: all
+    run:
+      config: Debug
+    archive:
+      config: Release
