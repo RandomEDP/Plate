@@ -4,6 +4,9 @@ name: Apple signing profiles
 # whether their provisioning profiles include it. With "Clear old profiles" ticked it deletes only profiles for these
 # two bundle ids that lack the group, so the next TestFlight build makes fresh ones.
 on:
+  # A change to the checker also runs it once, read-only.
+  push:
+    paths: [scripts/asc-profiles.mjs, .github/workflows/apple-profiles.yml]
   workflow_dispatch:
     inputs:
       refresh:
