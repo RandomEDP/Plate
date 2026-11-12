@@ -12,6 +12,8 @@ final class AppModel {
     }
     /// A short message shown at the top of the screen ("Saved Chicken fajitas from TikTok").
     var banner: String?
+    /// Reels and TikToks shared to Plate whose recipe is only in the video, waiting for a recording of it.
+    var waitingVideos: [WaitingVideo] = []
     var selectedTab: Tab = .today
     /// The full-screen dashboard for an iPad on the wall.
     var showWall = false
@@ -305,6 +307,7 @@ final class AppModel {
     // MARK: Imports from the share sheet
 
     func collectInbox() {
+        waitingVideos = WaitingForVideo.all()
         let items = Inbox.takeAll()
         guard !items.isEmpty else { return }
         var names: [String] = []

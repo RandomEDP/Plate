@@ -14,6 +14,7 @@ struct RecipesView: View {
     @State private var selected: Set<UUID> = []
     @State private var confirmDelete = false
     @State private var reimporting: [UUID]?
+    @State private var waiting = false
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", ready = "Can make", favourites = "Favourites", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
@@ -73,6 +74,12 @@ struct RecipesView: View {
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    if !model.waitingVideos.isEmpty {
+                        Button { waiting = true } label: {
+                            Label("\(model.waitingVideos.count) waiting for a video", systemImage: "film.stack")
+                        }
+                        .accessibilityHint("Posts you shared whose recipe is only in the video")
+                    }
                 }
                 Section {
                     if matches.isEmpty {
@@ -167,6 +174,7 @@ struct RecipesView: View {
             .sheet(isPresented: $importing) { ImportRecipeView() }
             .sheet(isPresented: $ideas) { IdeasView() }
             .sheet(isPresented: $bulkImport) { BulkImportView() }
+            .sheet(isPresented: $waiting) { WaitingVideosView() }
             .sheet(isPresented: Binding(get: { reimporting != nil }, set: { if !$0 { reimporting = nil } })) {
                 ReimportView(ids: reimporting ?? [])
                     .onDisappear { selected = []; selecting = false }

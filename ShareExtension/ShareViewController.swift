@@ -21,7 +21,7 @@ final class ShareViewController: UIViewController {
 
 @MainActor
 final class ShareModel: ObservableObject {
-    enum Phase { case reading, found(Recipe), failed(String), saved, videoSaved }
+    enum Phase { case reading, found(Recipe), failed(String), saved, videoSaved, needsVideo(String), waiting }
 
     weak var context: NSExtensionContext?
     @Published var phase: Phase = .reading
@@ -49,11 +49,17 @@ final class ShareModel: ObservableObject {
         }
         var platform: SocialImport.Platform?
         if let (url, p) = SocialImport.link(in: shared), shared.count < url.absoluteString.count + 40 {
+            link = url.absoluteString
             do {
                 let (c, _, _) = try await CaptionFetcher.fetch(shared)
-                caption = c.text; author = c.author; link = url.absoluteString; platform = p
+                caption = c.text; author = c.author; platform = p
             } catch {
-                phase = .failed(error.localizedDescription)
+                // The caption couldn't be read (a private post, say), but the recipe may still be in the video.
+                if p == .instagram || p == .tiktok {
+                    phase = .needsVideo("Couldn't read the post's caption (\(error.localizedDescription)).")
+                } else {
+                    phase = .failed(error.localizedDescription)
+                }
                 return
             }
         } else {
@@ -62,7 +68,9 @@ final class ShareModel: ObservableObject {
         }
         let kind: RecipeSourceKind = platform == .tiktok ? .tiktok : platform == .instagram ? .instagram : (link == nil ? .manual : .web)
         let recipe = RecipeTextParser.parse(caption).recipe(source: RecipeSource(kind: kind, url: link, author: author))
-        if recipe.ingredients.count < 2 {
+        if recipe.ingredients.count < 2, link != nil {
+            phase = .needsVideo("There's no recipe in the caption, so it must be in the video.")
+        } else if recipe.ingredients.count < 2 {
             phase = .failed("Couldn't find a recipe in that caption. If the recipe is only in the video, save the video, then share it to Plate (or use Recipes → Import → From a video).")
         } else {
             phase = .found(recipe)
@@ -77,6 +85,17 @@ final class ShareModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 self.close()
             }
+        } catch {
+            phase = .failed("Couldn't save it: \(error.localizedDescription)")
+        }
+    }
+
+    /// Keeps the link and caption until a recording of the video is added in the app.
+    func saveForVideo() {
+        guard let link else { return }
+        do {
+            try WaitingForVideo.add(WaitingVideo(link: link, caption: caption, author: author))
+            phase = .waiting
         } catch {
             phase = .failed("Couldn't save it: \(error.localizedDescription)")
         }
@@ -132,6 +151,24 @@ struct ShareView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.orange)
                         Text(message).multilineTextAlignment(.center)
+                    }
+                    .padding()
+                case .needsVideo(let why):
+                    VStack(spacing: 14) {
+                        Image(systemName: "film").font(.largeTitle).foregroundStyle(.orange)
+                        Text(why).multilineTextAlignment(.center)
+                        Text("Save the link now, then screen-record the video. In Plate, Recipes → Waiting for a video → pick the recording, and Plate reads the caption and the video together.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button { model.saveForVideo() } label: { Label("Save link, add the video later", systemImage: "clock") }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                case .waiting:
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
+                        Text("Saved. Now screen-record the video (Control Centre → Screen Recording), then open Plate: it's under Recipes → Waiting for a video.")
+                            .multilineTextAlignment(.center)
+                        Button("Done") { model.close() }.buttonStyle(.borderedProminent)
                     }
                     .padding()
                 case .videoSaved:

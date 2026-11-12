@@ -78,6 +78,9 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   `SFSpeechRecognizer` (on-device where it can); `VideoText` (PlateCore, tested) dedupes the screen lines and lays
   caption + screen + speech out for `readRecipe`. A link pasted first has its caption read too and stays with the recipe.
   Links alone can't fetch the video (Instagram and TikTok need a login), so Plate doesn't try.
+  Sharing a post whose caption has no recipe offers "Save link, add the video later": the link and caption go to
+  `WaitingForVideo` (app group JSON), shown as Recipes → "N waiting for a video" (`WaitingVideosView`), where a
+  screen recording is picked for each and read with the caption (`AppModel.recipeFromVideo`).
 - **Share extension** (`ShareExtension/`): reads the shared link or text, parses it and appends to `inbox.json` in the
   app group; the app takes the inbox when it opens (`AppModel.collectInbox`).
 - **AI** (`App/AI/`): `AIChoice` automatic/apple/claude/off. Apple's Foundation Models (iOS 26, `@Generable`) is free
