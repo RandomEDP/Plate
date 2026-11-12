@@ -39,6 +39,9 @@ git push                                                                        
 gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true            # TestFlight (once the secrets are in)
 ```
 
+- **Merge, then build.** When a piece of work is finished and CI is green, merge its PR yourself (no need to ask Ethan),
+  then run TestFlight from `main`. Never upload from a branch: builds from different branches overtake each other in
+  TestFlight and drop each other's features.
 - Mount the package at `/pkg` exactly: a `.build` folder made under another path fails with "PCH was compiled with
   module cache path". Delete `Packages/PlateCore/.build` if in doubt.
 - The app target (UIKit, SwiftUI, VisionKit, FoundationModels) only compiles on CI's Mac ("iOS" job). Read its log after
