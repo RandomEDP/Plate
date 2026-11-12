@@ -23,6 +23,7 @@ struct TileView: View {
             case .useSoon: UseSoonTile()
             case .note: NoteTile(tile: tile)
             case .nowPlaying: NowPlayingTile(editing: editing)
+            case .weather: WeatherTile(large: tile.size == .large || tile.size == .tall)
             case .unknown: Color.clear
             }
         }

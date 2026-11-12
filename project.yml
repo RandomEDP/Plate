@@ -32,6 +32,7 @@ targets:
       properties:
         com.apple.security.application-groups: [group.com.randomedp.plate.share]
         com.apple.developer.homekit: true
+        com.apple.developer.weatherkit: true
     info:
       path: App/Info.plist
       properties:
@@ -49,6 +50,7 @@ targets:
         NSCameraUsageDescription: Plate uses the camera to scan barcodes on food you add to your kitchen.
         NSHomeKitUsageDescription: Plate shows your lights, plugs and scenes on its home dashboard so you can switch them from there.
         NSAppleMusicUsageDescription: Plate plays the albums you pin to its home dashboard.
+        NSLocationWhenInUseUsageDescription: Plate uses your location once, roughly, to show the weather on its home dashboard.
         NSPhotoLibraryUsageDescription: Plate shows a photo album you choose on the wall dashboard when nobody's using it.
         CFBundleURLTypes:
           - CFBundleURLName: com.randomedp.plate

@@ -27,6 +27,8 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     case note
     /// Music playing right now, with play/pause and skip.
     case nowPlaying
+    /// The weather where the device is (Apple Weather, through WeatherKit).
+    case weather
     case unknown
 
     public init(from decoder: Decoder) throws {
@@ -45,7 +47,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles that only make sense once, such as the clock.
     public var isSingle: Bool {
         switch self {
-        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying: return true
+        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather: return true
         default: return false
         }
     }
@@ -98,7 +100,7 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
     public static func defaultSize(for kind: TileKind) -> TileSize {
         switch kind {
         case .clock, .musicAlbum, .todaysMeals, .shoppingList: return .large
-        case .nowPlaying, .useSoon, .note, .room: return .wide
+        case .nowPlaying, .useSoon, .note, .room, .weather: return .wide
         default: return .small
         }
     }
@@ -454,5 +456,46 @@ public struct SeededGenerator: RandomNumberGenerator, Sendable {
         z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
         z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
         return z ^ (z >> 31)
+    }
+}
+
+// MARK: - Weather
+
+/// One hour of forecast, as much as the weather tile needs. The app fills these in from WeatherKit.
+public struct HourForecast: Hashable, Sendable {
+    public var date: Date
+    /// Degrees Celsius.
+    public var temperature: Double
+    /// Chance of rain or snow, 0 to 1.
+    public var precipitationChance: Double
+    public init(date: Date, temperature: Double, precipitationChance: Double) {
+        self.date = date; self.temperature = temperature; self.precipitationChance = precipitationChance
+    }
+}
+
+public enum WeatherText {
+    /// "12°", rounded, and never "-0°".
+    public static func temperature(_ celsius: Double) -> String {
+        let r = Int(celsius.rounded())
+        return "\(r == 0 ? 0 : r)°"
+    }
+
+    /// A short line about rain in the next 12 hours, the thing worth knowing on the way out of the door:
+    /// "Rain now", "Rain likely from 15:00", or nil when it looks dry. "Likely" means a 50% chance or more.
+    public static func rainNote(_ hours: [HourForecast], now: Date, threshold: Double = 0.5, calendar: Calendar = .plate) -> String? {
+        let thisHour = calendar.dateInterval(of: .hour, for: now)?.start ?? now
+        let ahead = hours.filter { $0.date >= thisHour && $0.date < thisHour.addingTimeInterval(12 * 3600) }
+            .sorted { $0.date < $1.date }
+        guard let wet = ahead.first(where: { $0.precipitationChance >= threshold }) else { return nil }
+        if wet.date <= thisHour { return "Rain now" }
+        let c = calendar.dateComponents([.hour, .minute], from: wet.date)
+        return "Rain likely from \(IdleMode.timeText((c.hour ?? 0) * 60 + (c.minute ?? 0)))"
+    }
+
+    /// The highest and lowest temperatures still to come today, for "↑14° ↓6°".
+    public static func range(_ hours: [HourForecast], now: Date, calendar: Calendar = .plate) -> (high: Double, low: Double)? {
+        let rest = hours.filter { calendar.isDate($0.date, inSameDayAs: now) && $0.date >= (calendar.dateInterval(of: .hour, for: now)?.start ?? now) }
+        guard let hi = rest.map(\.temperature).max(), let lo = rest.map(\.temperature).min() else { return nil }
+        return (hi, lo)
     }
 }

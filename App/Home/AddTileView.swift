@@ -172,6 +172,8 @@ private struct PlateTilePicker: View {
         List {
             SwiftUI.Section {
                 AddRow(tile: DashboardTile(kind: .clock, title: "Clock", subtitle: "Time and date"), symbol: "clock")
+                AddRow(tile: DashboardTile(kind: .weather, title: "Weather", subtitle: "Now, today's high and low, and rain on the way. Large shows the next few hours"),
+                       symbol: "cloud.sun")
                 AddRow(tile: DashboardTile(kind: .todaysMeals, title: "Today's meals", subtitle: "From the meal plan"),
                        symbol: "fork.knife")
                 AddRow(tile: DashboardTile(kind: .shoppingList, title: "Shopping list", subtitle: "What's left to buy"),

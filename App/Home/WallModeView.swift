@@ -172,6 +172,7 @@ private struct IdleClock: View {
 struct DashboardSettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(PhotoStore.self) private var photos
+    @Environment(WeatherStore.self) private var weather
     @Environment(\.dismiss) private var dismiss
     @AppStorage("wallModeOnLaunch") private var wallOnLaunch = false
     @State private var albums: [PhotoStore.AlbumInfo] = []
@@ -222,6 +223,11 @@ struct DashboardSettingsView: View {
                         }
                     }
                 } header: { Text("Night") }
+                Section {
+                    Button("Find my location again") { weather.forgetLocation(); Task { await weather.refresh(force: true) } }
+                } header: { Text("Weather") } footer: {
+                    Text("Plate keeps this device's location, rounded to about a kilometre, so the weather tile works without asking again. Use this if the device moves.")
+                }
                 Section {
                     Toggle("Open in wall mode", isOn: $wallOnLaunch)
                 } header: { Text("This device") } footer: {

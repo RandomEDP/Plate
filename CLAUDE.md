@@ -72,8 +72,9 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   album, else a clock); all tested in `DashboardTests.swift`. Saved as `household.dashboard`. The app side is
   `App/Home/`: `HomeStore` (HomeKit), `MusicStore` and `PhotoStore` (MusicKit, PhotoKit), `DashboardView` (grid, edit
   mode), `AddTileView`, `WallModeView` (full screen, screen kept on, idle artwork). Devices are still set up and
-  automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The app needs the
-  HomeKit capability and the MusicKit app service ticked on `com.randomedp.plate`; "Open in wall mode" is a per-device
+  automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The weather tile
+  (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
+  legal link. The app needs the HomeKit and WeatherKit capabilities and the MusicKit and WeatherKit app services ticked on `com.randomedp.plate`; "Open in wall mode" is a per-device
   `UserDefaults` setting. The app is iPhone (portrait) and iPad (every orientation, as Apple requires).
 - **Shopping** (`Shopping.swift`): needs from the chosen meals, minus the kitchen, then `bestPacks` (a small knapsack
   over pack sizes per store, with a waste penalty for perishables).

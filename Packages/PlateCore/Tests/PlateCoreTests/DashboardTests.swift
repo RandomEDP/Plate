@@ -154,7 +154,7 @@ final class DashboardTests: XCTestCase {
 
     func testTileKindsFromANewerPlateAreKeptButHidden() throws {
         let json = """
-        {"tiles":[{"kind":"weather","title":"Weather","size":"huge"},{"kind":"clock","title":"Clock"}],
+        {"tiles":[{"kind":"hologram","title":"Hologram","size":"huge"},{"kind":"clock","title":"Clock"}],
          "idle":{"minutes":5,"lasers":true}}
         """
         let d = try JSONDecoder().decode(HomeDashboard.self, from: Data(json.utf8))
@@ -251,6 +251,47 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(IdleArtwork.choose(musicPlaying: true, hasNowPlayingArtwork: false, photoCount: 40), .photos)
         XCTAssertEqual(IdleArtwork.choose(musicPlaying: true, hasNowPlayingArtwork: false, photoCount: 0), .clockOnly)
         XCTAssertEqual(IdleArtwork.choose(musicPlaying: false, hasNowPlayingArtwork: false, photoCount: 0), .clockOnly)
+    }
+
+    // MARK: Weather
+
+    private func hours(from h: Int, chances: [Double], temps: [Double]? = nil) -> [HourForecast] {
+        chances.enumerated().map { i, c in
+            HourForecast(date: at(h + i, 0), temperature: temps?[i] ?? 10, precipitationChance: c)
+        }
+    }
+
+    func testRainNote() {
+        XCTAssertNil(WeatherText.rainNote(hours(from: 9, chances: [0.1, 0.2, 0.3]), now: at(9, 20)))
+        XCTAssertEqual(WeatherText.rainNote(hours(from: 9, chances: [0.1, 0.2, 0.7]), now: at(9, 20)), "Rain likely from 11:00")
+        XCTAssertEqual(WeatherText.rainNote(hours(from: 9, chances: [0.8, 0.2]), now: at(9, 40)), "Rain now")
+        XCTAssertNil(WeatherText.rainNote(hours(from: 7, chances: [0.9, 0.1, 0.1]), now: at(9, 0)), "Rain that's been and gone")
+    }
+
+    func testRainMoreThanTwelveHoursAwayIsIgnored() {
+        var h = hours(from: 0, chances: Array(repeating: 0.0, count: 20))
+        h[14].precipitationChance = 0.9
+        XCTAssertNil(WeatherText.rainNote(h, now: at(1, 0)))
+    }
+
+    func testTemperatureText() {
+        XCTAssertEqual(WeatherText.temperature(12.4), "12°")
+        XCTAssertEqual(WeatherText.temperature(12.5), "13°")
+        XCTAssertEqual(WeatherText.temperature(-0.3), "0°")
+        XCTAssertEqual(WeatherText.temperature(-3.6), "-4°")
+    }
+
+    func testRangeIsTheRestOfToday() {
+        let h = hours(from: 6, chances: Array(repeating: 0, count: 6), temps: [3, 5, 9, 14, 12, 8])
+        XCTAssertEqual(WeatherText.range(h, now: at(8, 30)).map { [$0.high, $0.low] }, [14, 8])
+        XCTAssertNil(WeatherText.range([], now: at(8, 0)))
+    }
+
+    func testWeatherIsAWideSingleTile() {
+        var d = HomeDashboard()
+        XCTAssertTrue(d.add(DashboardTile(kind: .weather, title: "Weather")))
+        XCTAssertFalse(d.add(DashboardTile(kind: .weather, title: "Weather")))
+        XCTAssertEqual(d.tiles[0].size, .wide)
     }
 
     // MARK: Slideshow

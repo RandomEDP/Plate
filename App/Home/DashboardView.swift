@@ -168,7 +168,8 @@ struct DashboardView: View {
             try? await Task.sleep(for: .milliseconds(500))
         }
         var tiles = DashboardStarter.layout(accessories: home.summaries, scenes: home.sceneSummaries)
-        tiles.insert(DashboardTile(kind: .nowPlaying, title: "Now playing"), at: 1)
+        tiles.insert(DashboardTile(kind: .weather, title: "Weather"), at: 1)
+        tiles.insert(DashboardTile(kind: .nowPlaying, title: "Now playing"), at: 2)
         for t in tiles { model.household.dashboard.add(t) }
     }
 
