@@ -90,6 +90,8 @@ struct RootView: View {
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag(AppModel.Tab.home)
         }
+        // Scrolling any list puts the keyboard away (the iPad's floating keyboard has no hide key).
+        .scrollDismissesKeyboard(.immediately)
         .fullScreenCover(isPresented: $model.showWall) {
             WallModeView()
                 .environment(model)

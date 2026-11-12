@@ -10,6 +10,7 @@ struct RecipesView: View {
     @State private var newRecipe = false
     @State private var bulkImport = false
     @State private var selecting = false
+    @FocusState private var searchFocused: Bool
     @State private var selected: Set<UUID> = []
     @State private var confirmDelete = false
 
@@ -96,15 +97,26 @@ struct RecipesView: View {
                 }
             }
             .searchable(text: $search, prompt: "Search recipes or ingredients")
+            .searchFocused($searchFocused)
+            .scrollDismissesKeyboard(.immediately)
             .navigationTitle("Recipes")
             .navigationDestination(for: Recipe.self) { RecipeDetailView(recipe: $0) }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(selecting ? "Done" : "Select") {
+                // On the right with the other buttons: iPad (iOS 26) hides the left-hand slot next to the search field.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
                         selecting.toggle()
                         selected = []
+                        searchFocused = false
+                    } label: {
+                        if selecting { Text("Done").bold() } else { Label("Select", systemImage: "checkmark.circle") }
                     }
                     .disabled(!selecting && matches.isEmpty)
+                    .accessibilityLabel(selecting ? "Done selecting" : "Select recipes")
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { searchFocused = false }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { bulkImport = true } label: { Image(systemName: "square.and.arrow.down.on.square") }
