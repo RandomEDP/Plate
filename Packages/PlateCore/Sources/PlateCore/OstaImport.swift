@@ -117,9 +117,23 @@ public enum OstaImport {
         return Int(t)
     }
 
+    /// Titles that mean the page isn't a recipe (Osta's home page, or a recipe it wouldn't show).
+    static let genericTitles: Set<String> = ["", "osta", "osta recipe", "osta recipes", "osta: save & share recipes", "home"]
+
+    /// Whether the page is one of Osta's recipe pages: it has the "Save this recipe" button or prep and cook times.
+    /// Osta's home page (where a private or missing recipe lands) has neither.
+    public static func isRecipePage(_ page: Page) -> Bool {
+        page.text.components(separatedBy: .newlines).contains { line in
+            let l = line.trimmingCharacters(in: .whitespaces).lowercased()
+            return l == "save this recipe" || isTimeLine(l)
+        }
+    }
+
     /// Turns the text of an Osta recipe page into recipe text. Nil when the page hasn't got a recipe on it (still
-    /// loading, or a "get the app" page).
+    /// loading, a private recipe, Osta's home page, or a "get the app" page).
     public static func extract(_ page: Page) -> Extract? {
+        guard isRecipePage(page),
+              !genericTitles.contains(page.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else { return nil }
         var lines = page.text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -190,7 +204,12 @@ public enum OstaImport {
             if let amount = pendingAmount { ingredients.append(amount + " " + line); pendingAmount = nil } else { ingredients.append(line) }
         }
 
-        guard ingredients.count >= 2 || steps.count >= 2 else { return nil }
+        // Real ingredients have an amount or a food Plate knows; headings and blurbs have neither.
+        let real = ingredients.filter { line in
+            guard let r = IngredientParser.parse(line) else { return false }
+            return r.quantity != nil || r.food != nil
+        }
+        guard real.count >= 2 else { return nil }
         var out = [title.isEmpty ? "Osta recipe" : title]
         if let servings { out.append("Serves \(servings)") }
         if minutes > 0 { out.append("Ready in \(minutes) minutes") }

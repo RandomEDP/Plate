@@ -16,3 +16,29 @@ extension Household {
         updatedAt = Date()
     }
 }
+
+extension Recipe {
+    /// This recipe read again from its source: the new reading, but the same id (so the meal plan and shopping lists
+    /// still point at it), still a favourite if it was, and still dated when it was first saved.
+    public func refreshed(from fresh: Recipe) -> Recipe {
+        var r = fresh
+        r.id = id
+        r.isFavourite = isFavourite
+        r.mealPrepFriendly = mealPrepFriendly || fresh.mealPrepFriendly
+        r.createdAt = createdAt
+        r.updatedAt = Date()
+        if r.source.url == nil { r.source = source }
+        return r
+    }
+}
+
+extension Household {
+    /// Puts a re-read recipe in place of the old one. False when the old one has gone (deleted meanwhile).
+    @discardableResult
+    public mutating func replaceRecipe(_ id: UUID, with fresh: Recipe) -> Bool {
+        guard let i = recipes.firstIndex(where: { $0.id == id }) else { return false }
+        recipes[i] = recipes[i].refreshed(from: fresh)
+        updatedAt = Date()
+        return true
+    }
+}

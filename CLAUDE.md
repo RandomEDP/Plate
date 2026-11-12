@@ -66,7 +66,12 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   loads the page in an almost invisible `WKWebView` and passes the page's text to `OstaImport.extract` (PlateCore),
   which turns it into caption text for `RecipeTextParser`. Folder links are scrolled and their recipe links collected.
   The page layout in `OstaImportTests` is copied from what Safari showed (12 November 2026); if Osta changes it, fix
-  the extractor against a new sample. `BulkImport` (Recipes → Import many) splits a big paste into links and captions.
+  the extractor against a new sample. `extract` gives nil unless the page is a real recipe page ("Save this recipe" or
+  prep/cook times, not Osta's home page) with at least two real ingredients. The AI's tidy-up is only used when
+  `AIGuard.faithful` finds its ingredients in the caption (on a blank page Apple's model invented recipes).
+  `BulkImport` (Recipes → Import many) splits a big paste into links and captions. Recipes → Select → Re-import
+  (`ReimportView`, `AppModel.fetchRecipe`, `Household.replaceRecipe`) reads chosen recipes again from their saved links
+  and swaps them in place, keeping id and favourite.
 - **Share extension** (`ShareExtension/`): reads the shared link or text, parses it and appends to `inbox.json` in the
   app group; the app takes the inbox when it opens (`AppModel.collectInbox`).
 - **AI** (`App/AI/`): `AIChoice` automatic/apple/claude/off. Apple's Foundation Models (iOS 26, `@Generable`) is free
