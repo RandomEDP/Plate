@@ -59,7 +59,9 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   no macros or packs.
 - **Parsing:** `IngredientParser` (one line), `RecipeTextParser` (a whole caption: title, ingredients, method,
   servings, stated macros, hashtags). Test new caption styles in `ParsingTests.swift`. `IngredientSplit` turns a line naming
-  two foods ("50g garlic and scallions") into two ingredients when a recipe is built, from Plate's parser or the AI.
+  two foods ("50g garlic and scallions") into two ingredients when a recipe is built, from Plate's parser or the AI. `UnitStandard` then puts each in the unit
+  you'd count it in (garlic in cloves, onions and eggs by the piece, liquids in ml, no oz or cups), noting what the recipe
+  said; weighed foods like chicken stay as written. Saved recipes were converted once (`standardiseSavedRecipeUnitsOnce`).
 - **Social import:** `SocialImport` (pure) plus `Shared/CaptionFetcher.swift`: TikTok's oEmbed `title` is the caption;
   Instagram is read from the post's `/embed/captioned/` page, falling back to the `og:description` meta tag. Neither
   needs a login; a private post can't be read, and the app says to paste the caption instead.

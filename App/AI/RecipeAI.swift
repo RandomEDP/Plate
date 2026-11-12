@@ -17,7 +17,7 @@ struct RecipeDraft: Codable, Hashable {
     var summary: String?
 
     func recipe(source: RecipeSource) -> Recipe {
-        let ings = IngredientSplit.split(ingredients.compactMap { IngredientParser.ingredient($0) ?? RecipeIngredient(name: $0, foodId: nil, quantity: nil) })
+        let ings = UnitStandard.tidy(ingredients.compactMap { IngredientParser.ingredient($0) ?? RecipeIngredient(name: $0, foodId: nil, quantity: nil) })
         let mealType = MealType(rawValue: meal.lowercased())
         let types: [MealType] = mealType.map { $0 == .lunch || $0 == .dinner ? [$0, $0 == .lunch ? .dinner : .lunch] : [$0] }
             ?? RecipeTextParser.guessMealTypes(name: name, tags: [], ingredients: ings, text: "")

@@ -24,7 +24,9 @@ final class AppModel {
 
     init() {
         if let data = try? Data(contentsOf: SharedStorage.householdURL),
-           let h = try? JSONDecoder.plate.decode(Household.self, from: data) {
+           var h = try? JSONDecoder.plate.decode(Household.self, from: data) {
+            // Recipes saved before standard units (garlic in cloves and so on) are converted once.
+            if h.standardiseSavedRecipeUnitsOnce() { AppModel.write(h) }
             household = h
         } else {
             household = Household()
