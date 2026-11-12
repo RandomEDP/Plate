@@ -71,7 +71,15 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   timing, night dimming, the slideshow order and `IdleArtwork.choose` (album cover while music plays, else the photo
   album, else a clock); all tested in `DashboardTests.swift`. Saved as `household.dashboard`. The app side is
   `App/Home/`: `HomeStore` (HomeKit), `MusicStore` and `PhotoStore` (MusicKit, PhotoKit), `DashboardView` (grid, edit
-  mode), `AddTileView`, `WallModeView` (full screen, screen kept on, idle artwork). Devices are still set up and
+  mode, pages), `TileViews`/`MoreTiles` (one view per `TileKind`, all drawn on `TileCard` from `Style.swift` so any
+  theme stays readable), `StyleEditors` (look, one tile, one accessory), `SetupEditors` (settings, pages, chores, bin
+  days, routines, layout export), `Engine.swift` (`DashboardEngine`: timers, routines and schedules, typed commands,
+  briefing; made once in `PlateApp`), `AddTileView`, `WallModeView` (full screen, screen kept on, idle artwork).
+  The pure parts are `DashboardStyle.swift` (colours, themes, sound packs made from notes), `DashboardExtras.swift`
+  (pages, timers, chores, bin days, routines, light shows) and `Commands.swift` (typed commands, no AI), each with
+  its own test file. Adding a `TileKind` means a case in `TileView`, a row in `AddTileView` and, if it has settings,
+  a case in `TileEditorView.particular`; per-tile settings go in `tile.options`. The guest Wi-Fi password lives in the
+  keychain (`SecretStore`), never in the household file. Devices are still set up and
   automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The weather tile
   (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
   legal link. The app needs the HomeKit and WeatherKit capabilities and the MusicKit and WeatherKit app services ticked on `com.randomedp.plate`; "Open in wall mode" is a per-device
