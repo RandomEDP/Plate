@@ -70,7 +70,7 @@ struct ImportRecipeView: View {
                     }
                     .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
                 } footer: {
-                    Text("In Instagram or TikTok tap Share → Copy link, then paste it here. Even quicker: tap Share → More → Save to Plate, straight from the video.")
+                    Text("In Instagram, TikTok or Osta tap Share → Copy link, then paste it here. Even quicker: tap Share → More → Save to Plate, straight from the video.")
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
@@ -125,6 +125,22 @@ struct ImportRecipeView: View {
         working = true
         defer { working = false }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An Osta recipe link: read Osta's page.
+        if let (url, _) = SocialImport.link(in: text), case .recipe? = OstaImport.kind(of: url) {
+            do {
+                let page = try await OstaReader.recipe(url)
+                caption = page.caption; author = page.author; link = url.absoluteString; platform = .web
+            } catch {
+                self.error = error.localizedDescription
+                return
+            }
+            await read()
+            return
+        }
+        if let (url, _) = SocialImport.link(in: text), case .folder? = OstaImport.kind(of: url) {
+            self.error = "That's a whole Osta folder. Use Recipes → Import many (the button at the top) to bring in every recipe in it."
+            return
+        }
         // A link on its own: fetch the caption. Anything longer is the caption itself (maybe with a link in it).
         if let (url, p) = SocialImport.link(in: text), text.count < url.absoluteString.count + 40 {
             do {
