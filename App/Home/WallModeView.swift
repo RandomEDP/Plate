@@ -51,6 +51,7 @@ struct WallModeView: View {
 struct IdleArtworkView: View {
     let settings: IdleSettings
     @Environment(PhotoStore.self) private var photos
+    @Environment(\.displayScale) private var scale
     @ObservedObject private var playerState = ApplicationMusicPlayer.shared.state
     @ObservedObject private var queue = ApplicationMusicPlayer.shared.queue
     @State private var photoIds: [String] = []
@@ -90,17 +91,19 @@ struct IdleArtworkView: View {
             }
             .animation(.easeInOut(duration: 1.5), value: currentId)
             .animation(.easeInOut(duration: 1.5), value: show)
-            .task(id: settings.photoAlbumId) { await runSlideshow(size: geo.size) }
+            // Restarts when the screen changes size too (rotating, or unfolding a foldable iPhone), so photos stay sharp.
+            .task(id: SlideshowKey(album: settings.photoAlbumId, size: geo.size)) { await runSlideshow(size: geo.size) }
         }
         .ignoresSafeArea()
         .contentShape(Rectangle())
     }
 
+    private struct SlideshowKey: Equatable { let album: String?; let size: CGSize }
+
     private func runSlideshow(size: CGSize) async {
         if !photos.canRead { return }
         photoIds = photos.photoIds(in: settings.photoAlbumId)
         var show = Slideshow(items: photoIds)
-        let scale = UIScreen.main.scale
         let px = CGSize(width: size.width * scale, height: size.height * scale)
         while !Task.isCancelled {
             if let id = show.next(), let image = await photos.image(id, size: px) {

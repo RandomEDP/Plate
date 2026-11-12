@@ -27,11 +27,9 @@ final class AppModel {
         } else {
             household = Household()
         }
-        // The iPad opens on the home dashboard, and straight into wall mode if that's turned on for this iPad.
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            selectedTab = .home
-            showWall = UserDefaults.standard.bool(forKey: "wallModeOnLaunch")
-        }
+        // The iPad opens on the home dashboard. Any device opens straight into wall mode if that's turned on for it.
+        if UIDevice.current.userInterfaceIdiom == .pad { selectedTab = .home }
+        showWall = UserDefaults.standard.bool(forKey: "wallModeOnLaunch")
     }
 
     // MARK: Saving

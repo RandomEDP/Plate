@@ -56,6 +56,31 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(DashboardGrid.columns(forWidth: 0), 2)
     }
 
+    /// Any screen, from a small phone to a foldable opened out or a big iPad, in either direction: tiles never get
+    /// narrower than the minimum, a wider screen never gets fewer columns, and the grid still fits.
+    func testColumnsAdaptToEveryWidth() {
+        var previous = 0
+        for width in stride(from: 320.0, through: 1400, by: 10) {
+            let cols = DashboardGrid.columns(forWidth: width)
+            XCTAssertGreaterThanOrEqual(cols, previous, "Width \(width)")
+            previous = cols
+            let tile = (width - 16 * Double(cols - 1)) / Double(cols)
+            XCTAssertGreaterThanOrEqual(tile, width < 316 ? 0 : 150, "Width \(width)")
+            let p = DashboardGrid.place(TileSize.allCases.map { (UUID(), $0) }, columns: cols)
+            XCTAssertTrue(p.allSatisfy { $0.column + $0.columns <= cols }, "Width \(width)")
+        }
+    }
+
+    func testFoldingChangesTheLayoutButNotTheOrder() {
+        let i = ids(6)
+        let sizes: [TileSize] = [.large, .small, .small, .wide, .small, .tall]
+        let folded = DashboardGrid.place(Array(zip(i, sizes)).map { ($0.0, $0.1) }, columns: 2)
+        let open = DashboardGrid.place(Array(zip(i, sizes)).map { ($0.0, $0.1) }, columns: 4)
+        XCTAssertEqual(folded.map(\.id), i)
+        XCTAssertEqual(open.map(\.id), i)
+        XCTAssertLessThan(DashboardGrid.rowCount(open), DashboardGrid.rowCount(folded), "Opened out, more fits on screen")
+    }
+
     // MARK: Editing
 
     func testAddingTheSameThingTwiceKeepsOne() {
