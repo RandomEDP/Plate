@@ -416,6 +416,8 @@ public struct Household: Codable, Hashable, Sendable {
     public var stores: [Store]
     /// Small settings that don't need their own field (kept as text so older files always open).
     public var extras: [String: String]
+    /// The home dashboard (Home tab and the wall iPad): its tiles and idle settings.
+    public var dashboard: HomeDashboard
     public var updatedAt: Date
 
     public init(id: UUID = UUID(), name: String = "My kitchen", members: [Member] = [Member(name: "Me")],
@@ -426,11 +428,11 @@ public struct Household: Codable, Hashable, Sendable {
         self.version = Household.currentVersion
         self.id = id; self.name = name; self.members = members; self.inventory = inventory; self.usage = usage
         self.recipes = recipes; self.hiddenBuiltIns = hiddenBuiltIns; self.plan = plan; self.planSettings = planSettings
-        self.lists = lists; self.log = log; self.stores = stores; self.extras = [:]; self.updatedAt = Date()
+        self.lists = lists; self.log = log; self.stores = stores; self.extras = [:]; self.dashboard = HomeDashboard(); self.updatedAt = Date()
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, id, name, members, inventory, usage, recipes, hiddenBuiltIns, plan, planSettings, lists, log, stores, extras, updatedAt
+        case version, id, name, members, inventory, usage, recipes, hiddenBuiltIns, plan, planSettings, lists, log, stores, extras, dashboard, updatedAt
     }
 
     /// Reads a saved household, filling in anything an older version of Plate didn't save.
@@ -451,6 +453,7 @@ public struct Household: Codable, Hashable, Sendable {
         log = try c.decodeIfPresent([FoodLogEntry].self, forKey: .log) ?? []
         stores = try c.decodeIfPresent([Store].self, forKey: .stores) ?? Store.allCases
         extras = try c.decodeIfPresent([String: String].self, forKey: .extras) ?? [:]
+        dashboard = try c.decodeIfPresent(HomeDashboard.self, forKey: .dashboard) ?? HomeDashboard()
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 }

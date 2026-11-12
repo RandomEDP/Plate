@@ -4,12 +4,18 @@ import SwiftUI
 @main
 struct PlateApp: App {
     @State private var model = AppModel()
+    @State private var home = HomeStore()
+    @State private var music = MusicStore()
+    @State private var photos = PhotoStore()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(model)
+                .environment(home)
+                .environment(music)
+                .environment(photos)
                 .onAppear {
                     model.rollPlanForward()
                     model.collectInbox()
@@ -35,6 +41,9 @@ struct PlateApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(HomeStore.self) private var home
+    @Environment(MusicStore.self) private var music
+    @Environment(PhotoStore.self) private var photos
 
     var body: some View {
         @Bindable var model = model
@@ -54,6 +63,16 @@ struct RootView: View {
             ShopView()
                 .tabItem { Label("Shop", systemImage: "cart") }
                 .tag(AppModel.Tab.shop)
+            HomeTabView()
+                .tabItem { Label("Home", systemImage: "house") }
+                .tag(AppModel.Tab.home)
+        }
+        .fullScreenCover(isPresented: $model.showWall) {
+            WallModeView()
+                .environment(model)
+                .environment(home)
+                .environment(music)
+                .environment(photos)
         }
         .overlay(alignment: .top) {
             if let text = model.banner {
