@@ -8,6 +8,7 @@ struct RecipesView: View {
     @State private var importing = false
     @State private var ideas = false
     @State private var newRecipe = false
+    @State private var bulkImport = false
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", ready = "Can make", favourites = "Favourites", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
@@ -79,12 +80,17 @@ struct RecipesView: View {
             .navigationDestination(for: Recipe.self) { RecipeDetailView(recipe: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button { bulkImport = true } label: { Image(systemName: "square.and.arrow.down.on.square") }
+                        .accessibilityLabel("Import many recipes")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { newRecipe = true } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("Write a recipe")
                 }
             }
             .sheet(isPresented: $importing) { ImportRecipeView() }
             .sheet(isPresented: $ideas) { IdeasView() }
+            .sheet(isPresented: $bulkImport) { BulkImportView() }
             .sheet(isPresented: $newRecipe) {
                 RecipeEditor(recipe: Recipe(name: "", mealTypes: [.dinner], servings: 2, ingredients: [], steps: [])) { model.save($0) }
             }

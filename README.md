@@ -12,7 +12,8 @@ shopping list that fills the gaps.
   portion and portions scaled for however many people.
 - **Import from Instagram and TikTok:** paste a Reel or TikTok link (or the caption itself), or tap Share → Save to Plate
   straight from the video. Plate reads the recipe from the caption: ingredients, method, servings, and any macros the
-  creator gave.
+  creator gave. Recipes → Import many takes a whole list of links (or several captions split by `---`) at once,
+  skipping any you've already saved.
 - **Ideas:** what you can make now, what you nearly can, and variations that swap a missing ingredient for one you have.
   With AI on, brand-new dishes from what's in your kitchen.
 - **Plan:** pick how many breakfasts, lunches, dinners and snacks a week, how many different recipes for each, and how

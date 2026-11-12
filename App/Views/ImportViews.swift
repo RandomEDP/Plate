@@ -11,6 +11,32 @@ extension AppModel {
         set { household.extras["claudeModel"] = newValue.rawValue }
     }
     var aiEngine: RecipeAIEngine? { AIService.engine(choice: aiChoice, claudeModel: claudeModel) }
+
+    /// Reads a caption into a recipe: Plate's own parsing, tidied by the AI when it's on (Plate's reading stands if the
+    /// AI fails). Nil when there isn't a recipe in it. The second value names the AI that helped, if any.
+    func readRecipe(caption: String, link: String?, author: String?, platform: SocialImport.Platform?) async -> (Recipe, String?)? {
+        let kind: RecipeSourceKind = platform == .tiktok ? .tiktok : platform == .instagram ? .instagram : (link == nil ? .manual : .web)
+        let source = RecipeSource(kind: kind, url: link, author: author)
+        let parsed = RecipeTextParser.parse(caption)
+        var recipe = parsed.recipe(source: source)
+        var usedAI: String?
+        if let engine = aiEngine {
+            do {
+                let draft = try await engine.tidy(caption: caption)
+                var tidy = draft.recipe(source: source)
+                if tidy.ingredients.count >= max(2, parsed.ingredients.count / 2) {
+                    // The creator's stated macros win over the model's estimate.
+                    if let stated = parsed.statedPerServing { tidy.statedPerServing = stated }
+                    tidy.tags = parsed.tags
+                    recipe = tidy
+                    usedAI = engine.name
+                }
+            } catch {
+                // Fall back silently to Plate's own reading.
+            }
+        }
+        return recipe.ingredients.count < 2 ? nil : (recipe, usedAI)
+    }
 }
 
 /// Paste a Reel or TikTok link (or the caption itself). Plate fetches the caption, reads the recipe, and lets you
@@ -116,31 +142,12 @@ struct ImportRecipeView: View {
     }
 
     func read() async {
-        let kind: RecipeSourceKind = platform == .tiktok ? .tiktok : platform == .instagram ? .instagram : (link == nil ? .manual : .web)
-        let source = RecipeSource(kind: kind, url: link, author: author)
-        let parsed = RecipeTextParser.parse(caption)
-        var recipe = parsed.recipe(source: source)
-        // Ask the AI to tidy up when it's switched on, keeping Plate's reading if the AI fails.
-        if let engine = model.aiEngine {
-            do {
-                let draft = try await engine.tidy(caption: caption)
-                var tidy = draft.recipe(source: source)
-                if tidy.ingredients.count >= max(2, parsed.ingredients.count / 2) {
-                    // The creator's stated macros win over the model's estimate.
-                    if let stated = parsed.statedPerServing { tidy.statedPerServing = stated }
-                    tidy.tags = parsed.tags
-                    recipe = tidy
-                    usedAI = engine.name
-                }
-            } catch {
-                // Fall back silently to Plate's own reading.
-            }
-        }
-        if recipe.ingredients.count < 2 {
+        guard let (recipe, ai) = await model.readRecipe(caption: caption, link: link, author: author, platform: platform) else {
             self.error = "Couldn't find a recipe in that caption. If the recipe is in the video rather than the caption, type it in with Recipes → ✎."
             return
         }
         result = recipe
+        usedAI = ai
     }
 }
 
