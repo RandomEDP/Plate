@@ -13,6 +13,7 @@ struct RecipesView: View {
     @FocusState private var searchFocused: Bool
     @State private var selected: Set<UUID> = []
     @State private var confirmDelete = false
+    @State private var reimporting: [UUID]?
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", ready = "Can make", favourites = "Favourites", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
@@ -135,6 +136,13 @@ struct RecipesView: View {
                             if shown.isSubset(of: selected) { selected.subtract(shown) } else { selected.formUnion(shown) }
                         }
                         Spacer()
+                        let linked = model.household.recipes.filter { selected.contains($0.id) && $0.source.url != nil }.map(\.id)
+                        Button { reimporting = linked } label: {
+                            Label(linked.isEmpty ? "Re-import" : "Re-import \(linked.count)", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(linked.isEmpty)
+                        .accessibilityHint("Reads the chosen recipes again from the links they came from")
+                        Spacer()
                         Button(role: .destructive) { confirmDelete = true } label: {
                             Label(selected.isEmpty ? "Delete" : "Delete \(selected.count)", systemImage: "trash")
                         }
@@ -159,6 +167,10 @@ struct RecipesView: View {
             .sheet(isPresented: $importing) { ImportRecipeView() }
             .sheet(isPresented: $ideas) { IdeasView() }
             .sheet(isPresented: $bulkImport) { BulkImportView() }
+            .sheet(isPresented: Binding(get: { reimporting != nil }, set: { if !$0 { reimporting = nil } })) {
+                ReimportView(ids: reimporting ?? [])
+                    .onDisappear { selected = []; selecting = false }
+            }
             .sheet(isPresented: $newRecipe) {
                 RecipeEditor(recipe: Recipe(name: "", mealTypes: [.dinner], servings: 2, ingredients: [], steps: [])) { model.save($0) }
             }

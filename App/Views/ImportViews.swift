@@ -24,7 +24,11 @@ extension AppModel {
             do {
                 let draft = try await engine.tidy(caption: caption)
                 var tidy = draft.recipe(source: source)
-                if tidy.ingredients.count >= max(2, parsed.ingredients.count / 2) {
+                // Only take the AI's version when its ingredients are really in the caption: on a page with no
+                // recipe it can make one up (Osta imports came back as "Chickpea & Courgette Salad").
+                if tidy.ingredients.count >= max(2, parsed.ingredients.count / 2),
+                   AIGuard.faithful(ingredients: draft.ingredients, to: caption) {
+                    if !AIGuard.faithful(name: tidy.name, to: caption) { tidy.name = parsed.name }
                     // The creator's stated macros win over the model's estimate.
                     if let stated = parsed.statedPerServing { tidy.statedPerServing = stated }
                     tidy.tags = parsed.tags
@@ -36,6 +40,28 @@ extension AppModel {
             }
         }
         return recipe.ingredients.count < 2 ? nil : (recipe, usedAI)
+    }
+
+    struct NoRecipe: LocalizedError {
+        var errorDescription: String? { "No recipe in the caption. It may only be in the video; type it in with Recipes → ✎." }
+    }
+
+    /// Fetches a link (an Osta recipe page, or an Instagram or TikTok caption) and reads the recipe from it.
+    func fetchRecipe(link url: URL) async throws -> Recipe {
+        let caption: String
+        let author: String?
+        if OstaImport.kind(of: url) != nil {
+            let page = try await OstaReader.recipe(url)
+            caption = page.caption
+            author = page.author
+        } else {
+            let (c, _, _) = try await CaptionFetcher.fetch(url.absoluteString)
+            caption = c.text
+            author = c.author
+        }
+        guard let (recipe, _) = await readRecipe(caption: caption, link: url.absoluteString, author: author,
+                                                 platform: SocialImport.platform(of: url)) else { throw NoRecipe() }
+        return recipe
     }
 }
 

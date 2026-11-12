@@ -31,4 +31,28 @@ final class RecipeLibraryTests: XCTestCase {
         h.deleteRecipes([])
         XCTAssertEqual(h, before)
     }
+
+    func testReimportKeepsTheRecipesPlaceAndFavourite() {
+        let old = Recipe(name: "Chickpea & Courgette Salad", mealTypes: [.lunch], servings: 2, ingredients: [], steps: [],
+                         source: RecipeSource(kind: .web, url: "https://ostarecipes.com/s/recipes/AAAAAAAAAA"),
+                         isFavourite: true, createdAt: Date(timeIntervalSince1970: 1000))
+        var h = Household()
+        h.recipes = [old]
+        h.plan.entries = [PlanEntry(day: 0, meal: .lunch, recipeId: old.id, servings: 2)]
+        let fresh = Recipe(name: "Creamy Tirokafteri", mealTypes: [.lunch], servings: 4,
+                           ingredients: [RecipeIngredient(name: "feta", foodId: nil, quantity: Quantity(200, .g))], steps: ["Blend."],
+                           source: RecipeSource(kind: .web, url: "https://ostarecipes.com/s/recipes/AAAAAAAAAA"))
+
+        XCTAssertTrue(h.replaceRecipe(old.id, with: fresh))
+
+        XCTAssertEqual(h.recipes.count, 1)
+        let r = h.recipes[0]
+        XCTAssertEqual(r.id, old.id, "The meal plan still points at it")
+        XCTAssertEqual(r.name, "Creamy Tirokafteri")
+        XCTAssertEqual(r.servings, 4)
+        XCTAssertTrue(r.isFavourite)
+        XCTAssertEqual(r.createdAt, old.createdAt)
+        XCTAssertEqual(h.plan.entries.first?.recipeId, old.id)
+        XCTAssertFalse(h.replaceRecipe(UUID(), with: fresh), "A recipe deleted meanwhile isn't brought back")
+    }
 }

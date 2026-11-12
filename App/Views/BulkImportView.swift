@@ -159,35 +159,23 @@ struct BulkImportView: View {
     }
 
     func importOne(_ item: BulkImport.Item) async -> RowState {
-        let link = item.link
-        let platform = link.map(SocialImport.platform(of:))
-        var caption: String
-        var author: String?
-        switch item {
-        case .link(let url, _) where OstaImport.kind(of: url) != nil:
-            do {
-                let page = try await OstaReader.recipe(url)
-                caption = page.caption
-                author = page.author
-            } catch {
-                return .failed(error.localizedDescription)
+        do {
+            let recipe: Recipe
+            switch item {
+            case .link(let url, _):
+                recipe = try await model.fetchRecipe(link: url)
+            case .caption(let text, let link):
+                guard let (r, _) = await model.readRecipe(caption: text, link: link?.absoluteString, author: nil,
+                                                          platform: link.map(SocialImport.platform(of:))) else {
+                    throw AppModel.NoRecipe()
+                }
+                recipe = r
             }
-        case .link(let url, _):
-            do {
-                let (c, _, _) = try await CaptionFetcher.fetch(url.absoluteString)
-                caption = c.text
-                author = c.author
-            } catch {
-                return .failed(error.localizedDescription)
-            }
-        case .caption(let text, _):
-            caption = text
+            model.save(recipe)
+            return .saved(recipe.name)
+        } catch {
+            return .failed(error.localizedDescription)
         }
-        guard let (recipe, _) = await model.readRecipe(caption: caption, link: link?.absoluteString, author: author, platform: platform) else {
-            return .failed("No recipe in the caption. It may only be in the video; type it in with Recipes → ✎.")
-        }
-        model.save(recipe)
-        return .saved(recipe.name)
     }
 }
 

@@ -109,6 +109,31 @@ final class OstaImportTests: XCTestCase {
         XCTAssertNil(OstaImport.extract(.init(title: "", text: "")))
     }
 
+    /// A private or missing recipe lands on Osta's home page. Its blurbs used to be saved as "ingredients", and the
+    /// AI then made up a recipe for them (Ethan, 12 November 2026).
+    func testOstasHomePageIsNotARecipe() {
+        let home = """
+        Osta
+        Save recipes from Instagram, TikTok and anywhere else
+        Plan your week in minutes
+        Join 100,000 home cooks
+        Get the app
+        2 minutes to set up
+        """
+        XCTAssertNil(OstaImport.extract(.init(title: "Osta Recipes", text: home)))
+        XCTAssertNil(OstaImport.extract(.init(title: "Osta: Save & Share Recipes", text: "Save this recipe\n" + home)))
+    }
+
+    func testARecipePageWithoutRealIngredientsGivesNothing() {
+        let page = """
+        Save this recipe
+        Prep 10 mins
+        A lovely summer favourite
+        Perfect for sharing with friends
+        """
+        XCTAssertNil(OstaImport.extract(.init(title: "Summer favourite", text: page)))
+    }
+
     func testAmountOnlyLines() {
         for s in ["2 cloves", "1/2", "200g", "100 ml", "½", "1 tbsp", "2 x"] { XCTAssertTrue(OstaImport.isAmountOnly(s), s) }
         for s in ["2 cloves garlic", "garlic", "1 red onion", "Using a hand blender"] { XCTAssertFalse(OstaImport.isAmountOnly(s), s) }
