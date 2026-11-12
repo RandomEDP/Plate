@@ -103,7 +103,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles you can have any number of, each set up differently.
     public var canRepeat: Bool {
         switch self {
-        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder: return true
+        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder, .calendar: return true
         default: return false
         }
     }
@@ -111,7 +111,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles that only make sense once, such as the clock.
     public var isSingle: Bool {
         switch self {
-        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather, .timer, .calendar, .chores, .bins,
+        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather, .timer, .chores, .bins,
              .climate, .allOff, .forecast, .sun, .macros, .cookNow, .activity, .command, .briefing, .battery: return true
         default: return false
         }

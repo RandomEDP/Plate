@@ -30,7 +30,7 @@ shopping list that fills the gaps.
     own groups, scenes, cameras, climate sensors, low batteries and "all lights off"; the weather, a week's forecast and
     sunrise/sunset (Apple Weather); pinned Apple Music albums, playlists and stations; kitchen timers that speak when
     they finish; chores with whose turn it is; bin days; a guest Wi-Fi code to scan; countdowns, world clocks, the
-    calendar, photo frames, notes, headings; live train departures, up to three journeys per tile (choose the station, direction,
+    calendar (choose which calendars, shared ones included, and how far ahead), photo frames, notes, headings; live train departures, up to three journeys per tile (choose the station, direction,
     operators, and fast or stopping trains; fast trains are marked; needs a free National Rail key from raildata.org.uk); today's meals, the shopping list, food to use soon, what to cook now.
   - *Make it yours:* themes, accent and tile colours, a gradient, moving colours, a photo or the playing album behind
     the tiles, frosted or outlined tiles, corner shape, spacing, lettering and five packs of sound effects. Every tile
