@@ -234,6 +234,8 @@ public struct DashboardStyle: Codable, Hashable, Sendable {
     public var appearance: AppearanceChoice
     /// "Good evening" with a one-line summary above the tiles.
     public var showGreeting: Bool
+    /// The time (and date) in the middle of the top row, between the greeting and the buttons.
+    public var headerClock: HeaderClock
     public var sounds: SoundSettings
 
     public init(accent: RGB = RGB(hex: "#2E9E5B")!, background: BackgroundKind = .system,
@@ -242,17 +244,17 @@ public struct DashboardStyle: Codable, Hashable, Sendable {
                 tileLook: TileLook = .solid, tileColor: RGB? = nil, tileOpacity: Double = 1,
                 onColor: RGB = RGB(hex: "#FFD60A")!, cornerRadius: Double = 22, spacing: Double = 16,
                 density: TileDensity = .regular, font: FontLook = .standard, appearance: AppearanceChoice = .auto,
-                showGreeting: Bool = true, sounds: SoundSettings = SoundSettings()) {
+                showGreeting: Bool = true, headerClock: HeaderClock = .timeAndDate, sounds: SoundSettings = SoundSettings()) {
         self.accent = accent; self.background = background; self.backgroundA = backgroundA; self.backgroundB = backgroundB
         self.backgroundPhotoId = backgroundPhotoId; self.backgroundBlur = backgroundBlur; self.backgroundDim = backgroundDim
         self.tileLook = tileLook; self.tileColor = tileColor; self.tileOpacity = tileOpacity; self.onColor = onColor
         self.cornerRadius = cornerRadius; self.spacing = spacing; self.density = density; self.font = font
-        self.appearance = appearance; self.showGreeting = showGreeting; self.sounds = sounds
+        self.appearance = appearance; self.showGreeting = showGreeting; self.headerClock = headerClock; self.sounds = sounds
     }
 
     enum CodingKeys: String, CodingKey {
         case accent, background, backgroundA, backgroundB, backgroundPhotoId, backgroundBlur, backgroundDim, tileLook,
-             tileColor, tileOpacity, onColor, cornerRadius, spacing, density, font, appearance, showGreeting, sounds
+             tileColor, tileOpacity, onColor, cornerRadius, spacing, density, font, appearance, showGreeting, headerClock, sounds
     }
 
     public init(from decoder: Decoder) throws {
@@ -275,6 +277,7 @@ public struct DashboardStyle: Codable, Hashable, Sendable {
         font = c.value(.font, default: d.font)
         appearance = c.value(.appearance, default: d.appearance)
         showGreeting = c.value(.showGreeting, default: d.showGreeting)
+        headerClock = c.value(.headerClock, default: d.headerClock)
         sounds = c.value(.sounds, default: d.sounds)
     }
 
@@ -365,6 +368,7 @@ public struct ThemePreset: Hashable, Sendable, Identifiable {
         var s = style
         s.backgroundPhotoId = current.backgroundPhotoId
         s.showGreeting = current.showGreeting
+        s.headerClock = current.headerClock
         s.sounds.volume = current.sounds.volume
         s.sounds.haptics = current.sounds.haptics
         s.sounds.speech = current.sounds.speech
@@ -506,5 +510,42 @@ public enum ToneSynth {
             withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) }
         }
         return d
+    }
+}
+
+/// The clock in the middle of the dashboard's top row.
+public enum HeaderClock: String, Codable, CaseIterable, Hashable, Sendable, Identifiable {
+    case off, time, timeAndDate
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .off: return "Off"
+        case .time: return "Time"
+        case .timeAndDate: return "Time and date"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = HeaderClock(rawValue: raw) ?? .timeAndDate
+    }
+
+    /// "09:05", on the 24-hour clock.
+    public static func timeText(_ date: Date, calendar: Calendar) -> String {
+        let c = calendar.dateComponents([.hour, .minute], from: date)
+        let h = c.hour ?? 0, m = c.minute ?? 0
+        return (h < 10 ? "0" : "") + "\(h):" + (m < 10 ? "0" : "") + "\(m)"
+    }
+
+    /// "Thursday 12 November". Spelt out here rather than by the device's language settings, so it always reads the same.
+    public static func dateText(_ date: Date, calendar: Calendar) -> String {
+        let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                      "November", "December"]
+        let c = calendar.dateComponents([.weekday, .day, .month], from: date)
+        let weekday = days[((c.weekday ?? 1) - 1 + 7) % 7]
+        let month = months[((c.month ?? 1) - 1 + 12) % 12]
+        return "\(weekday) \(c.day ?? 1) \(month)"
     }
 }

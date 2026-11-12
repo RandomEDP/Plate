@@ -189,4 +189,26 @@ final class DashboardStyleTests: XCTestCase {
         XCTAssertEqual(i16(52), -32767)
         XCTAssertEqual(i16(54), 32767, "Anything over full volume is held at full volume")
     }
+
+    func testHeaderClockText() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London")!
+        let date = cal.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 9, minute: 5))!
+        XCTAssertEqual(HeaderClock.timeText(date, calendar: cal), "09:05")
+        XCTAssertEqual(HeaderClock.dateText(date, calendar: cal), "Thursday 12 November")
+        let evening = cal.date(from: DateComponents(year: 2026, month: 1, day: 4, hour: 18, minute: 40))!
+        XCTAssertEqual(HeaderClock.timeText(evening, calendar: cal), "18:40")
+        XCTAssertEqual(HeaderClock.dateText(evening, calendar: cal), "Sunday 4 January")
+    }
+
+    func testHeaderClockIsOnByDefaultAndKeptByThemes() throws {
+        XCTAssertEqual(DashboardStyle().headerClock, .timeAndDate)
+        let old = try JSONDecoder().decode(DashboardStyle.self, from: Data("{}".utf8))
+        XCTAssertEqual(old.headerClock, .timeAndDate, "Dashboards saved before the clock get it")
+        let odd = try JSONDecoder().decode(DashboardStyle.self, from: Data(#"{"headerClock":"sundial"}"#.utf8))
+        XCTAssertEqual(odd.headerClock, .timeAndDate)
+        var mine = DashboardStyle()
+        mine.headerClock = .off
+        XCTAssertEqual(ThemePreset.all.first!.applied(to: mine).headerClock, .off)
+    }
 }
