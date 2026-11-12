@@ -66,6 +66,18 @@ extension AppModel {
         }
     }
 
+    /// Reads a recipe from a video, with the post's caption if there is one, keeping the post's link with it.
+    func recipeFromVideo(_ url: URL, caption: String?, link: String?, author: String?,
+                         step: @MainActor @escaping (String) -> Void) async throws -> Recipe {
+        let text = try await VideoReader.read(url, caption: caption, step: step)
+        step("Reading the recipe…")
+        let platform = link.flatMap(URL.init(string:)).map(SocialImport.platform(of:))
+        guard let (recipe, _) = await readRecipe(caption: text, link: link, author: author, platform: platform) else {
+            throw VideoReader.Failure.nothingFound
+        }
+        return recipe
+    }
+
     struct NoRecipe: LocalizedError {
         var errorDescription: String? { "No recipe in the caption. If it's only in the video, save the video and use Import → From a video." }
     }

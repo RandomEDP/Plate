@@ -40,6 +40,36 @@ enum VideoInbox {
     static func remove(_ file: URL) { try? FileManager.default.removeItem(at: file) }
 }
 
+/// A Reel or TikTok shared to Plate whose recipe is only in the video. The link and caption wait here until a
+/// recording of the video is added in the app (Recipes → Waiting for a video).
+struct WaitingVideo: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var savedAt = Date()
+    var link: String
+    var caption: String
+    var author: String?
+}
+
+enum WaitingForVideo {
+    static var url: URL { SharedStorage.folder.appendingPathComponent("waiting-for-video.json") }
+
+    static func all() -> [WaitingVideo] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder.plate.decode([WaitingVideo].self, from: data)) ?? []
+    }
+
+    static func add(_ item: WaitingVideo) throws {
+        var items = all().filter { $0.link != item.link }
+        items.append(item)
+        try JSONEncoder.plate.encode(items).write(to: url, options: .atomic)
+    }
+
+    static func remove(_ id: UUID) {
+        let items = all().filter { $0.id != id }
+        try? JSONEncoder.plate.encode(items).write(to: url, options: .atomic)
+    }
+}
+
 /// A recipe saved from the share sheet, waiting for the app to pick it up.
 struct PendingImport: Codable, Identifiable {
     var id = UUID()
