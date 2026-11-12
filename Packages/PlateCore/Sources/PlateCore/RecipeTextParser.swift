@@ -21,7 +21,7 @@ public struct ParsedRecipe: Equatable, Sendable {
     public var looksLikeRecipe: Bool { ingredients.count >= 2 }
 
     public func recipe(source: RecipeSource) -> Recipe {
-        Recipe(name: name, mealTypes: mealTypes, servings: servings ?? 1, ingredients: ingredients, steps: steps,
+        Recipe(name: name, mealTypes: mealTypes, servings: servings ?? 1, ingredients: IngredientSplit.split(ingredients), steps: steps,
                minutes: minutes, tags: tags, source: source, statedPerServing: statedPerServing,
                mealPrepFriendly: (servings ?? 1) >= 3 || tags.contains { $0.contains("mealprep") })
     }

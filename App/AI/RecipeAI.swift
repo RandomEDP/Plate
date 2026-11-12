@@ -17,7 +17,7 @@ struct RecipeDraft: Codable, Hashable {
     var summary: String?
 
     func recipe(source: RecipeSource) -> Recipe {
-        let ings = ingredients.compactMap { IngredientParser.ingredient($0) ?? RecipeIngredient(name: $0, foodId: nil, quantity: nil) }
+        let ings = IngredientSplit.split(ingredients.compactMap { IngredientParser.ingredient($0) ?? RecipeIngredient(name: $0, foodId: nil, quantity: nil) })
         let mealType = MealType(rawValue: meal.lowercased())
         let types: [MealType] = mealType.map { $0 == .lunch || $0 == .dinner ? [$0, $0 == .lunch ? .dinner : .lunch] : [$0] }
             ?? RecipeTextParser.guessMealTypes(name: name, tags: [], ingredients: ings, text: "")
@@ -71,7 +71,9 @@ enum AIPrompts {
     static let instructions = """
     You are the cooking assistant in Plate, a UK kitchen app. Use British ingredient names (courgette, coriander, \
     chickpeas, double cream) and metric amounts. Write each ingredient as one line with the amount first, for example \
-    "200g chicken breast", "1 tin chopped tomatoes", "2 garlic cloves". Keep method steps short. Give calories and \
+    "200g chicken breast", "1 tin chopped tomatoes", "2 garlic cloves". One food per line: never join two foods with \
+    "and" (write "2 garlic cloves" and "3 spring onions" as two lines). When no amount is given, write the food on its own \
+    rather than guessing one. Keep method steps short. Give calories and \
     macros per portion as your best estimate.
     """
 
