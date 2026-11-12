@@ -12,7 +12,7 @@ struct BulkImportView: View {
     @State private var stopRequested = false
 
     enum RowState: Equatable {
-        case waiting, working, saved(String), failed(String)
+        case waiting, working, saved(String), failed(String), expanded(Int)
     }
 
     struct Row: Identifiable {
@@ -22,6 +22,9 @@ struct BulkImportView: View {
 
         var title: String {
             switch item {
+            case .link(let url, _) where OstaImport.kind(of: url) != nil:
+                if case .folder? = OstaImport.kind(of: url) { return "Osta folder" }
+                return "Osta · \(url.lastPathComponent)"
             case .link(let url, let platform):
                 let name = platform == .instagram ? "Instagram" : platform == .tiktok ? "TikTok" : (url.host ?? "Link")
                 return "\(name) · \(url.path)"
@@ -51,7 +54,7 @@ struct BulkImportView: View {
                         Button { find() } label: { Label("Find the recipes", systemImage: "list.bullet.rectangle") }
                             .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     } footer: {
-                        Text("Paste as many Instagram or TikTok links as you like, one per line (words around them are fine). To paste several recipes as text, put a line of --- between each one. Recipes you've already saved are skipped.")
+                        Text("Paste as many Instagram, TikTok or Osta links as you like, one per line (words around them are fine). An Osta folder link brings in every recipe in the folder. To paste several recipes as text, put a line of --- between each one. Recipes you've already saved are skipped.")
                     }
                 } else {
                     Section {
@@ -82,6 +85,9 @@ struct BulkImportView: View {
                                     switch row.state {
                                     case .saved(let name):
                                         Text(name)
+                                    case .expanded(let n):
+                                        Text(row.title)
+                                        Text("Found \(n) new recipe\(n == 1 ? "" : "s") in it").font(.caption).foregroundStyle(.secondary)
                                     case .failed(let why):
                                         Text(row.title).lineLimit(1)
                                         Text(why).font(.caption).foregroundStyle(.red)
@@ -106,6 +112,7 @@ struct BulkImportView: View {
         case .working: ProgressView()
         case .saved: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .expanded: Image(systemName: "folder.fill").foregroundStyle(.secondary)
         }
     }
 
@@ -123,11 +130,29 @@ struct BulkImportView: View {
         running = true
         stopRequested = false
         defer { running = false }
-        for i in rows.indices where rows[i].state == .waiting {
+        var i = 0
+        while i < rows.count {
+            defer { i += 1 }
+            guard rows[i].state == .waiting else { continue }
             if stopRequested { break }
             rows[i].state = .working
+            if let url = rows[i].item.link, case .folder? = OstaImport.kind(of: url) {
+                // A shared Osta folder: list its recipes, and import each one after it.
+                do {
+                    let links = try await OstaReader.folder(url)
+                    let items = links.map { BulkImport.Item.link($0, .web) }
+                    let have = model.recipes.compactMap { $0.source.url } + rows.compactMap { $0.item.link?.absoluteString }
+                    let fresh = BulkImport.notYetImported(items, existingLinks: have)
+                    alreadySaved += items.count - fresh.count
+                    rows.insert(contentsOf: fresh.map { Row(item: $0) }, at: i + 1)
+                    rows[i].state = .expanded(fresh.count)
+                } catch {
+                    rows[i].state = .failed(error.localizedDescription)
+                }
+                continue
+            }
             rows[i].state = await importOne(rows[i].item)
-            // A short pause between posts, so Instagram and TikTok don't start refusing.
+            // A short pause between posts, so Instagram, TikTok and Osta don't start refusing.
             if rows[i].item.isLink { try? await Task.sleep(for: .milliseconds(1200)) }
         }
         if savedCount > 0 { model.banner = "Imported \(savedCount) recipe\(savedCount == 1 ? "" : "s")" }
@@ -139,6 +164,14 @@ struct BulkImportView: View {
         var caption: String
         var author: String?
         switch item {
+        case .link(let url, _) where OstaImport.kind(of: url) != nil:
+            do {
+                let page = try await OstaReader.recipe(url)
+                caption = page.caption
+                author = page.author
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         case .link(let url, _):
             do {
                 let (c, _, _) = try await CaptionFetcher.fetch(url.absoluteString)

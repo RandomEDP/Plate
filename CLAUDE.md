@@ -59,6 +59,11 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
 - **Social import:** `SocialImport` (pure) plus `Shared/CaptionFetcher.swift`: TikTok's oEmbed `title` is the caption;
   Instagram is read from the post's `/embed/captioned/` page, falling back to the `og:description` meta tag. Neither
   needs a login; a private post can't be read, and the app says to paste the caption instead.
+- **Osta import:** Osta (ostarecipes.com) has no export, and its share pages are drawn by JavaScript. `App/OstaReader.swift`
+  loads the page in an almost invisible `WKWebView` and passes the page's text to `OstaImport.extract` (PlateCore),
+  which turns it into caption text for `RecipeTextParser`. Folder links are scrolled and their recipe links collected.
+  The page layout in `OstaImportTests` is copied from what Safari showed (12 November 2026); if Osta changes it, fix
+  the extractor against a new sample. `BulkImport` (Recipes → Import many) splits a big paste into links and captions.
 - **Share extension** (`ShareExtension/`): reads the shared link or text, parses it and appends to `inbox.json` in the
   app group; the app takes the inbox when it opens (`AppModel.collectInbox`).
 - **AI** (`App/AI/`): `AIChoice` automatic/apple/claude/off. Apple's Foundation Models (iOS 26, `@Generable`) is free
