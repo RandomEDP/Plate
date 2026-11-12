@@ -72,11 +72,12 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   Plate's own parsing stands.
 - **Planner** (`Planner.swift`): seeded, scores recipes by what's in stock, overlap with the rest of the week, expiring
   food, favourites, batch cooking and calorie targets. Locked entries stay put.
-- **Home dashboard**: `Dashboard.swift` in PlateCore holds the tiles, grid packing (`DashboardGrid.place`), idle
+- **Home dashboard**: `Dashboard.swift` in PlateCore holds the tiles, grid packing (`DashboardGrid.place`), free placement (`row`/`column` per tile, `moveTile`, `tidyPage`; a spot that doesn't fit a narrower
+  grid falls back to the first gap), idle
   timing, night dimming, the slideshow order and `IdleArtwork.choose` (album cover while music plays, else the photo
   album, else a clock); all tested in `DashboardTests.swift`. Saved as `household.dashboard`. The app side is
   `App/Home/`: `HomeStore` (HomeKit), `MusicStore` and `PhotoStore` (MusicKit, PhotoKit), `DashboardView` (grid, edit
-  mode, pages), `TileViews`/`MoreTiles` (one view per `TileKind`, all drawn on `TileCard` from `Style.swift` so any
+  mode, pages), `RoomsPage.swift` (a page with `layout == .rooms`: one column per HomeKit room; choice and order in `RoomsPage`), `TileViews`/`MoreTiles` (one view per `TileKind`, all drawn on `TileCard` from `Style.swift` so any
   theme stays readable), `StyleEditors` (look, one tile, one accessory), `SetupEditors` (settings, pages, chores, bin
   days, routines, layout export), `Engine.swift` (`DashboardEngine`: timers, routines and schedules, typed commands,
   briefing; made once in `PlateApp`), `AddTileView`, `WallModeView` (full screen, screen kept on, idle artwork).

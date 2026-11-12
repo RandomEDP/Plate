@@ -28,6 +28,7 @@ struct DashboardView: View {
     @State private var dragging: UUID?
     @State private var page: UUID? = HomeDashboard.firstPageId
     @State private var renaming: DashboardPage?
+    @State private var choosingRooms: DashboardPage?
     @State private var newName = ""
 
     private var dashboard: HomeDashboard { model.household.dashboard }
@@ -43,9 +44,6 @@ struct DashboardView: View {
         let spacing = CGFloat(style.spacing)
         let pages = dashboard.pageList
         GeometryReader { geo in
-            let width = max(100, geo.size.width - spacing * 2)
-            let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
-            let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: spacing) {
                     // The clock needs about 230 points in the middle, clear of the greeting and the buttons.
@@ -67,21 +65,23 @@ struct DashboardView: View {
                         VStack(alignment: .leading, spacing: spacing) { homeStatus; emptyState }.padding(spacing)
                     }
                 } else {
-                    // Pages sit side by side; swipe to move between them, like the home screen.
-                    ScrollView(.horizontal) {
-                        LazyHStack(spacing: 0) {
-                            ForEach(pages) { p in
-                                pageView(p, cols: cols, cell: cell, spacing: spacing)
-                                    .containerRelativeFrame(.horizontal)
-                                    .id(p.id)
+                    // Pages sit side by side; swipe to move between them, like the home screen. Each page measures
+                    // its own width, so the grid always fits the space it really has (beside the sidebar, say).
+                    TabView(selection: $page) {
+                        ForEach(pages) { p in
+                            GeometryReader { pg in
+                                if p.layout == .rooms {
+                                    RoomsPageView(page: p, width: pg.size.width, spacing: spacing, editing: editing,
+                                                  chooseRooms: { choosingRooms = p })
+                                } else {
+                                    pageView(p, width: pg.size.width, spacing: spacing)
+                                }
                             }
+                            .tag(Optional(p.id))
                         }
-                        .scrollTargetLayout()
                     }
-                    .scrollTargetBehavior(.paging)
-                    .scrollPosition(id: $page)
-                    .scrollIndicators(.hidden)
-                    .scrollDisabled(pages.count < 2)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .onAppear { if page != currentPage { page = currentPage } }
                     .overlay(alignment: .bottom) { if pages.count > 1 { pageDots(pages) } }
                 }
             }
@@ -100,6 +100,7 @@ struct DashboardView: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .sheet(item: $editTile) { TileEditorView(tile: $0) }
+        .sheet(item: $choosingRooms) { RoomsPageSettings(pageId: $0.id) }
         .alert("Name this page", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Save") {
@@ -115,8 +116,11 @@ struct DashboardView: View {
     }
 
     /// One page of tiles, scrolling up and down on its own.
-    private func pageView(_ p: DashboardPage, cols: Int, cell: CGFloat, spacing: CGFloat) -> some View {
+    private func pageView(_ p: DashboardPage, width pageWidth: CGFloat, spacing: CGFloat) -> some View {
         let tiles = dashboard.tiles(onPage: p.id)
+        let width = max(100, pageWidth - spacing * 2)
+        let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
+        let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
         return ScrollView {
             VStack(alignment: .leading, spacing: spacing) {
                 if p.id == dashboard.pageList.first?.id { homeStatus }
@@ -129,10 +133,28 @@ struct DashboardView: View {
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 60)
                 } else {
-                    TileGrid(columns: cols, spacing: spacing, cell: cell) {
-                        ForEach(tiles) { tile in
-                            tileCell(tile)
-                                .layoutValue(key: TileSizeKey.self, value: tile.size)
+                    let placed = DashboardGrid.place(tiles.map { (id: $0.id, size: $0.size, row: $0.row, column: $0.column) }, columns: cols)
+                    let spots = Dictionary(placed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                    // While editing, two spare rows below the tiles to drag into.
+                    let rows = DashboardGrid.rowCount(placed) + (editing ? 2 : 0)
+                    ZStack(alignment: .topLeading) {
+                        if editing {
+                            EmptyCells(columns: cols, rows: rows, cell: cell, spacing: spacing, placed: placed) { r, c in
+                                guard let id = dragging else { return false }
+                                withAnimation(.spring(duration: 0.3)) {
+                                    model.household.dashboard.moveTile(id, toRow: r, column: c, columns: cols)
+                                }
+                                Feedback.shared.play(.tap)
+                                dragging = nil
+                                return true
+                            }
+                        }
+                        TileGrid(columns: cols, spacing: spacing, cell: cell, minRows: rows) {
+                            ForEach(tiles) { tile in
+                                tileCell(tile, spot: spots[tile.id], columns: cols)
+                                    .layoutValue(key: TileSizeKey.self, value: tile.size)
+                                    .layoutValue(key: TileSpotKey.self, value: spots[tile.id])
+                            }
                         }
                     }
                     .animation(.spring(duration: 0.3), value: tiles)
@@ -161,6 +183,15 @@ struct DashboardView: View {
     }
 
     /// Adds a page and goes to it.
+    private func addRoomsPage() {
+        let id = model.household.dashboard.addPage(named: "Rooms", icon: "rectangle.split.3x1", layout: .rooms)
+        withAnimation(.snappy) { page = id }
+    }
+
+    private func setLayout(_ id: UUID, _ layout: PageLayout) {
+        withAnimation(.snappy) { model.household.dashboard.updatePage(id) { $0.layout = layout } }
+    }
+
     private func addPage() {
         let id = model.household.dashboard.addPage(named: "")
         withAnimation(.snappy) { page = id }
@@ -171,32 +202,35 @@ struct DashboardView: View {
     private var needsHome: Bool {
         let kinds: Set<TileKind> = [.accessory, .scene, .room, .group, .camera, .climate, .allOff, .battery, .lightShow, .command]
         return dashboard.tiles.contains { kinds.contains($0.kind) } || !dashboard.routines.isEmpty
+            || dashboard.pageList.contains { $0.layout == .rooms }
     }
 
     // MARK: Top row
 
     /// The top row: greeting on the left, the time (and date) in the middle when there's room, buttons on the right.
     private func header(wide: Bool) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            if style.showGreeting {
-                TimelineView(.everyMinute) { ctx in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.household.members.first?.name))
-                            .font(.system(size: wall ? 34 : 28, weight: .bold))
-                            .lineLimit(1).minimumScaleFactor(0.6)
-                        let summary = engine.summaryLine(now: ctx.date)
-                        if !summary.isEmpty {
-                            Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        let clock = wide && style.headerClock != .off
+        return HStack(alignment: .top, spacing: 12) {
+            Group {
+                if style.showGreeting {
+                    TimelineView(.everyMinute) { ctx in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.household.members.first?.name))
+                                .font(.system(size: wall ? 34 : 28, weight: .bold))
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                            let summary = engine.summaryLine(now: ctx.date)
+                            if !summary.isEmpty {
+                                Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                            }
                         }
                     }
                 }
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The clock takes its own room in the middle, so the row is as tall as it needs and nothing sits under it.
+            if clock { headerClock.layoutPriority(1) }
             controls
-        }
-        .overlay(alignment: .top) {
-            // Centred on the whole row, not the gap, so it sits in the middle of the screen.
-            if wide && style.headerClock != .off { headerClock }
+                .frame(maxWidth: clock ? .infinity : nil, alignment: .trailing)
         }
     }
 
@@ -213,7 +247,7 @@ struct DashboardView: View {
                 }
             }
             .lineLimit(1)
-            .padding(.top, -6)
+            .fixedSize()
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
@@ -261,11 +295,22 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        if p.layout == .rooms {
+                            Button("Choose rooms", systemImage: "checklist") { choosingRooms = p }
+                            Button("Show as tiles", systemImage: "square.grid.2x2") { setLayout(p.id, .tiles) }
+                        } else {
+                            Button("Show as rooms", systemImage: "rectangle.split.3x1") { setLayout(p.id, .rooms) }
+                        }
                         if !dashboard.pages.isEmpty {
                             Button("Rename", systemImage: "pencil") { newName = p.name; renaming = p }
                             Menu("Icon") {
                                 ForEach(["house", "sofa", "bed.double", "fork.knife", "music.note", "lightbulb", "tv", "tram.fill", "leaf", "star", "square.grid.2x2"], id: \.self) { i in
                                     Button { setIcon(p.id, i) } label: { Label(i, systemImage: i) }
+                                }
+                            }
+                            if p.layout == .tiles {
+                                Button("Tidy this page", systemImage: "rectangle.3.group") {
+                                    withAnimation(.snappy) { model.household.dashboard.tidyPage(p.id) }
                                 }
                             }
                             if dashboard.pages.count > 1 {
@@ -277,7 +322,10 @@ struct DashboardView: View {
                     }
                 }
                 if editing {
-                    Button { addPage() } label: {
+                    Menu {
+                        Button("Page of tiles", systemImage: "square.grid.2x2") { addPage() }
+                        Button("Rooms side by side", systemImage: "rectangle.split.3x1") { addRoomsPage() }
+                    } label: {
                         Label("New page", systemImage: "plus")
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -296,7 +344,7 @@ struct DashboardView: View {
 
     // MARK: Tiles
 
-    @ViewBuilder private func tileCell(_ tile: DashboardTile) -> some View {
+    @ViewBuilder private func tileCell(_ tile: DashboardTile, spot: TilePlacement?, columns: Int) -> some View {
         let base = TileView(tile: tile, editing: editing)
             .opacity(dragging == tile.id ? 0.4 : 1)
         if editing {
@@ -308,8 +356,13 @@ struct DashboardView: View {
                     dragging = tile.id
                     return NSItemProvider(object: tile.id.uuidString as NSString)
                 }
-                .onDrop(of: [.plainText], delegate: TileDrop(target: tile.id, dragging: $dragging) { from, to in
-                    model.household.dashboard.move(from, before: to)
+                // Dropped on another tile: the two swap places.
+                .onDrop(of: [.plainText], delegate: TileDrop(target: tile.id, dragging: $dragging) { from, _ in
+                    guard let spot else { return }
+                    withAnimation(.spring(duration: 0.3)) {
+                        model.household.dashboard.moveTile(from, toRow: spot.row, column: spot.column, columns: columns)
+                    }
+                    Feedback.shared.play(.tap)
                 })
         } else {
             base
@@ -397,8 +450,6 @@ private struct EditBadge: View {
                                                   set: { s in withAnimation { model.household.dashboard.resize(tile.id, to: s) } })) {
                     ForEach(TileSize.allCases) { Text($0.title).tag($0) }
                 }
-                Button("Move earlier", systemImage: "arrow.left") { withAnimation { model.household.dashboard.shift(tile.id, by: -1) } }
-                Button("Move later", systemImage: "arrow.right") { withAnimation { model.household.dashboard.shift(tile.id, by: 1) } }
                 if model.household.dashboard.pages.count > 1 {
                     Menu("Move to page") {
                         ForEach(model.household.dashboard.pages) { p in
@@ -448,16 +499,61 @@ private struct TileDrop: DropDelegate {
     @Binding var dragging: UUID?
     let move: (UUID, UUID) -> Void
 
-    func dropEntered(info: DropInfo) {
-        guard let dragging, dragging != target else { return }
-        withAnimation { move(dragging, target) }
-    }
-
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
 
     func performDrop(info: DropInfo) -> Bool {
-        dragging = nil
+        defer { dragging = nil }
+        guard let dragging, dragging != target else { return false }
+        move(dragging, target)
         return true
+    }
+}
+
+/// The empty cells of the grid in edit mode, drawn faintly so you can see where a tile can go, and each one a place
+/// to drop a tile.
+private struct EmptyCells: View {
+    let columns: Int
+    let rows: Int
+    let cell: CGFloat
+    let spacing: CGFloat
+    let placed: [TilePlacement]
+    let drop: (Int, Int) -> Bool
+
+    private struct Cell: Hashable, Identifiable {
+        let r: Int
+        let c: Int
+        var id: String { "\(r),\(c)" }
+    }
+
+    var body: some View {
+        let free = (0..<rows).flatMap { r in (0..<columns).map { c in Cell(r: r, c: c) } }.filter { cell in
+            !placed.contains { $0.row <= cell.r && cell.r < $0.row + $0.rows && $0.column <= cell.c && cell.c < $0.column + $0.columns }
+        }
+        ZStack(alignment: .topLeading) {
+            ForEach(free) { spot in
+                DropCell(drop: { drop(spot.r, spot.c) })
+                    .frame(width: cell, height: cell)
+                    .offset(x: CGFloat(spot.c) * (cell + spacing), y: CGFloat(spot.r) * (cell + spacing))
+            }
+        }
+        .frame(width: CGFloat(columns) * cell + CGFloat(max(0, columns - 1)) * spacing,
+               height: CGFloat(rows) * cell + CGFloat(max(0, rows - 1)) * spacing, alignment: .topLeading)
+    }
+}
+
+private struct DropCell: View {
+    let drop: () -> Bool
+    @Environment(\.dashStyle) private var style
+    @State private var over = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 6]))
+            .foregroundStyle(over ? style.accent.color : Color.primary.opacity(0.15))
+            .background(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+                .fill(over ? style.accent.color.opacity(0.18) : Color.clear))
+            .contentShape(Rectangle())
+            .onDrop(of: [.plainText], isTargeted: $over) { _ in drop() }
     }
 }
 
@@ -467,18 +563,26 @@ struct TileSizeKey: LayoutValueKey {
     static let defaultValue: TileSize = .small
 }
 
+/// Where the dashboard has placed a tile. Without it (inside a folder, say) tiles flow into the first gaps.
+struct TileSpotKey: LayoutValueKey {
+    static let defaultValue: TilePlacement? = nil
+}
+
 /// Lays tiles out on a grid of square cells using `DashboardGrid.place` (tested in PlateCore).
 struct TileGrid: Layout {
     let columns: Int
     let spacing: CGFloat
     let cell: CGFloat
+    var minRows = 0
 
     private func placements(_ subviews: Subviews) -> [TilePlacement] {
-        DashboardGrid.place(subviews.map { (UUID(), $0[TileSizeKey.self]) }, columns: columns)
+        let spots = subviews.map { $0[TileSpotKey.self] }
+        if spots.allSatisfy({ $0 != nil }) { return spots.compactMap { $0 } }
+        return DashboardGrid.place(subviews.map { (UUID(), $0[TileSizeKey.self]) }, columns: columns)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = CGFloat(DashboardGrid.rowCount(placements(subviews)))
+        let rows = CGFloat(max(minRows, DashboardGrid.rowCount(placements(subviews))))
         let width = CGFloat(columns) * cell + CGFloat(columns - 1) * spacing
         return CGSize(width: width, height: max(0, rows * cell + (rows - 1) * spacing))
     }

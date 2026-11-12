@@ -372,18 +372,12 @@ struct NowPlayingTile: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(entry?.title ?? "Nothing playing").font(.headline).lineLimit(1)
                     Text(entry?.subtitle ?? "Play something here or in Music").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                    HStack(spacing: 22) {
-                        Button { Task { try? await music.player.skipToPreviousEntry() } } label: { Image(systemName: "backward.fill") }
-                        Button { Task { await music.togglePlayPause() } } label: {
-                            Image(systemName: state.playbackStatus == .playing ? "pause.fill" : "play.fill")
-                        }
-                        Button { Task { try? await music.player.skipToNextEntry() } } label: { Image(systemName: "forward.fill") }
-                        Button {
-                            state.shuffleMode = state.shuffleMode == .songs ? .off : .songs
-                        } label: {
-                            Image(systemName: "shuffle").opacity(state.shuffleMode == .songs ? 1 : 0.4)
-                        }
-                        RoutePicker().frame(width: 30, height: 30)
+                    // All the buttons when there's room; fewer on a narrow tile, so nothing spills off the edge.
+                    ViewThatFits(in: .horizontal) {
+                        controls(spacing: 22, extras: true)
+                        controls(spacing: 16, extras: true)
+                        controls(spacing: 16, extras: false)
+                        controls(spacing: 10, extras: false)
                     }
                     .font(.title2)
                     .buttonStyle(.plain)
@@ -393,6 +387,27 @@ struct NowPlayingTile: View {
             }
             .padding(14)
         }
+    }
+}
+
+extension NowPlayingTile {
+    @ViewBuilder func controls(spacing: CGFloat, extras: Bool) -> some View {
+        HStack(spacing: spacing) {
+            Button { Task { try? await music.player.skipToPreviousEntry() } } label: { Image(systemName: "backward.fill") }
+            Button { Task { await music.togglePlayPause() } } label: {
+                Image(systemName: state.playbackStatus == .playing ? "pause.fill" : "play.fill")
+            }
+            Button { Task { try? await music.player.skipToNextEntry() } } label: { Image(systemName: "forward.fill") }
+            if extras {
+                Button {
+                    state.shuffleMode = state.shuffleMode == .songs ? .off : .songs
+                } label: {
+                    Image(systemName: "shuffle").opacity(state.shuffleMode == .songs ? 1 : 0.4)
+                }
+                RoutePicker().frame(width: 30, height: 30)
+            }
+        }
+        .fixedSize()
     }
 }
 

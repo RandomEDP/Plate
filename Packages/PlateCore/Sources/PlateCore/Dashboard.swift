@@ -103,7 +103,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles you can have any number of, each set up differently.
     public var canRepeat: Bool {
         switch self {
-        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder: return true
+        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder, .calendar: return true
         default: return false
         }
     }
@@ -111,7 +111,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles that only make sense once, such as the clock.
     public var isSingle: Bool {
         switch self {
-        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather, .timer, .calendar, .chores, .bins,
+        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather, .timer, .chores, .bins,
              .climate, .allOff, .forecast, .sun, .macros, .cookNow, .activity, .command, .briefing, .battery: return true
         default: return false
         }
@@ -163,6 +163,10 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
     public var pageId: UUID?
     /// The folder tile this one is kept inside, if any.
     public var folderId: UUID?
+    /// Where you put it on its page's grid (dragged there in edit mode). nil means "the first gap it fits", which is
+    /// where new tiles go. Kept even if a narrower screen can't use it, so it's back in place on the wider one.
+    public var row: Int?
+    public var column: Int?
     /// Settings particular to the kind of tile (a countdown's date, a world clock's time zone…), kept as text.
     public var options: [String: String]
     public var updatedAt: Date
@@ -192,7 +196,7 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
         }
     }
 
-    enum CodingKeys: String, CodingKey { case id, kind, ref, title, subtitle, size, label, icon, tint, pageId, folderId, options, updatedAt }
+    enum CodingKeys: String, CodingKey { case id, kind, ref, title, subtitle, size, label, icon, tint, pageId, folderId, row, column, options, updatedAt }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -207,6 +211,8 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
         tint = c.optional(.tint)
         pageId = c.optional(.pageId)
         folderId = c.optional(.folderId)
+        row = c.optional(.row)
+        column = c.optional(.column)
         options = c.value(.options, default: [:])
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
@@ -334,7 +340,7 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        tiles = try c.decodeIfPresent([DashboardTile].self, forKey: .tiles) ?? []
+        tiles = HomeDashboard.withUniqueIds(try c.decodeIfPresent([DashboardTile].self, forKey: .tiles) ?? [])
         idle = try c.decodeIfPresent(IdleSettings.self, forKey: .idle) ?? IdleSettings()
         style = c.value(.style, default: DashboardStyle())
         pages = c.value(.pages, default: [])
@@ -345,6 +351,17 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
         schedules = c.value(.schedules, default: [])
         activity = c.value(.activity, default: [])
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+    }
+
+    /// Gives any tile that shares its id with an earlier one a fresh id. Builds before 49 could add the same tile twice
+    /// with one id (tapping + again in the add list), which made the copies resize and disappear together.
+    static func withUniqueIds(_ tiles: [DashboardTile]) -> [DashboardTile] {
+        var seen = Set<UUID>()
+        return tiles.map { t in
+            var t = t
+            if !seen.insert(t.id).inserted { t.id = UUID() }
+            return t
+        }
     }
 
     /// The tiles this version of Plate can draw.
@@ -360,6 +377,9 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
     public mutating func add(_ tile: DashboardTile) -> Bool {
         // A music or photo tile added empty (to be chosen in its editor) never counts as a duplicate.
         if tile.kind.canRepeat || (tile.kind.needsRef && tile.ref == nil) || !contains(tile.kind, ref: tile.ref) {
+            var tile = tile
+            // Every tile needs its own id, or removing, resizing or moving one acts on all the copies at once.
+            if tiles.contains(where: { $0.id == tile.id }) { tile.id = UUID() }
             tiles.append(tile)
             updatedAt = Date()
             return true
@@ -391,6 +411,51 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
         // Dragging forwards drops the tile after the target; backwards, before it, which is what a finger expects.
         tiles.insert(tile, at: from <= to ? min(to + 1, tiles.endIndex) : to)
         updatedAt = Date()
+    }
+
+    /// Drags a tile to a cell on its page's grid (`columns` wide, as on the screen it was dragged on). Everything
+    /// else on the page stays where it is now; a tile already in that space swaps to where the dragged one was if it
+    /// fits there, otherwise it moves to the next gap.
+    public mutating func moveTile(_ id: UUID, toRow row: Int, column: Int, columns: Int) {
+        guard let tile = tiles.first(where: { $0.id == id }) else { return }
+        let page = tile.folderId == nil ? (tile.pageId.flatMap { p in pageList.contains { $0.id == p } ? p : nil } ?? pageList[0].id) : nil
+        guard let page else { return }
+        let onPage = tiles(onPage: page)
+        let placed = DashboardGrid.place(onPage.map { (id: $0.id, size: $0.size, row: $0.row, column: $0.column) }, columns: columns)
+        guard let from = placed.first(where: { $0.id == id }) else { return }
+        // Pin everything where it is, so moving one tile doesn't shuffle the others.
+        for p in placed { setSpot(p.id, row: p.row, column: p.column) }
+        let cols = max(1, columns)
+        var to = from
+        to.row = max(0, row)
+        to.column = max(0, min(column, cols - from.columns))
+        guard to.row != from.row || to.column != from.column else { return }
+        setSpot(id, row: to.row, column: to.column)
+        let inTheWay = placed.filter { $0.id != id && DashboardGrid.overlap($0, to) }
+        if inTheWay.count == 1, var other = inTheWay.first {
+            other.row = from.row
+            other.column = min(from.column, cols - other.columns)
+            let clear = placed.allSatisfy { $0.id == id || $0.id == other.id || !DashboardGrid.overlap($0, other) }
+                && !DashboardGrid.overlap(other, to)
+            if clear { setSpot(other.id, row: other.row, column: other.column); updatedAt = Date(); return }
+        }
+        for o in inTheWay { setSpot(o.id, row: nil, column: nil) }
+        updatedAt = Date()
+    }
+
+    /// Lets every tile on a page find the first gap again, closing up the empty spaces.
+    public mutating func tidyPage(_ page: UUID) {
+        let ids = Set(tiles(onPage: page).map(\.id))
+        for i in tiles.indices where ids.contains(tiles[i].id) { tiles[i].row = nil; tiles[i].column = nil }
+        updatedAt = Date()
+    }
+
+    private mutating func setSpot(_ id: UUID, row: Int?, column: Int?) {
+        guard let i = tiles.firstIndex(where: { $0.id == id }) else { return }
+        guard tiles[i].row != row || tiles[i].column != column else { return }
+        tiles[i].row = row
+        tiles[i].column = column
+        tiles[i].updatedAt = Date()
     }
 
     /// Moves a tile one place earlier or later. Used by the arrow buttons in edit mode.
@@ -495,33 +560,52 @@ public enum DashboardGrid {
     /// Places tiles in order, each in the first gap it fits (reading left to right, top to bottom), so small tiles
     /// fill the holes left beside large ones. A tile wider than the grid is narrowed to fit.
     public static func place(_ tiles: [(id: UUID, size: TileSize)], columns: Int) -> [TilePlacement] {
+        place(tiles.map { (id: $0.id, size: $0.size, row: Int?.none, column: Int?.none) }, columns: columns)
+    }
+
+    /// Places tiles that have a spot of their own there first (in order, so if two want the same space the earlier
+    /// one gets it), then the rest in the first gaps they fit. Empty cells between tiles stay empty. Results come
+    /// back in the same order as `tiles`.
+    public static func place(_ tiles: [(id: UUID, size: TileSize, row: Int?, column: Int?)], columns: Int) -> [TilePlacement] {
         let cols = max(1, columns)
         var taken: [[Bool]] = []
-        var result: [TilePlacement] = []
+        var found: [Int: TilePlacement] = [:]
 
         func free(_ r: Int, _ c: Int, _ w: Int, _ h: Int) -> Bool {
-            guard c + w <= cols else { return false }
+            guard r >= 0, c >= 0, c + w <= cols else { return false }
             for rr in r..<(r + h) where rr < taken.count {
                 for cc in c..<(c + w) where taken[rr][cc] { return false }
             }
             return true
         }
+        func take(_ i: Int, _ id: UUID, _ r: Int, _ c: Int, _ w: Int, _ h: Int) {
+            while taken.count < r + h { taken.append(Array(repeating: false, count: cols)) }
+            for rr in r..<(r + h) { for cc in c..<(c + w) { taken[rr][cc] = true } }
+            found[i] = TilePlacement(id: id, column: c, row: r, columns: w, rows: h)
+        }
 
-        for t in tiles {
-            let w = min(t.size.columns, cols)
-            let h = t.size.rows
+        for (i, t) in tiles.enumerated() {
+            guard let r = t.row, let c = t.column, r < 500 else { continue }
+            let w = min(t.size.columns, cols), h = t.size.rows
+            if free(r, c, w, h) { take(i, t.id, r, c, w, h) }
+        }
+        for (i, t) in tiles.enumerated() where found[i] == nil {
+            let w = min(t.size.columns, cols), h = t.size.rows
             var row = 0
             search: while true {
                 for col in 0..<cols where free(row, col, w, h) {
-                    while taken.count < row + h { taken.append(Array(repeating: false, count: cols)) }
-                    for rr in row..<(row + h) { for cc in col..<(col + w) { taken[rr][cc] = true } }
-                    result.append(TilePlacement(id: t.id, column: col, row: row, columns: w, rows: h))
+                    take(i, t.id, row, col, w, h)
                     break search
                 }
                 row += 1
             }
         }
-        return result
+        return tiles.indices.compactMap { found[$0] }
+    }
+
+    /// Whether two placed tiles cover any of the same cells.
+    public static func overlap(_ a: TilePlacement, _ b: TilePlacement) -> Bool {
+        a.column < b.column + b.columns && b.column < a.column + a.columns && a.row < b.row + b.rows && b.row < a.row + a.rows
     }
 
     /// Rows the placed tiles use.

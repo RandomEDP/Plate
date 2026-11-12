@@ -75,6 +75,8 @@ private struct AddRow: View {
                 }
             } else {
                 var t = tile
+                // A fresh id every tap: this row can stay on screen and be tapped again to add another.
+                t.id = UUID()
                 t.pageId = page
                 if t.kind != .folder { t.folderId = folder }
                 // The description under the row is for choosing; it isn't shown on these tiles.
@@ -284,7 +286,10 @@ private struct MoreTilePicker: View {
 
     var body: some View {
         List {
-            SwiftUI.Section("Time and weather") {
+            SwiftUI.Section("Calendar, time and weather") {
+                AddRow(tile: DashboardTile(kind: .calendar, title: "Calendar",
+                                           subtitle: "Coming events from the calendars you choose, shared ones too. Add one per calendar if you like"),
+                       symbol: "calendar")
                 AddRow(tile: DashboardTile(kind: .clock, title: "Clock", subtitle: "Digital, analogue or in words"), symbol: "clock")
                 AddRow(tile: DashboardTile(kind: .weather, title: "Weather", subtitle: "Now, today's high and low, and rain on the way"), symbol: "cloud.sun")
                 AddRow(tile: DashboardTile(kind: .forecast, title: "This week", subtitle: "The next few days of weather"), symbol: "calendar.day.timeline.left")
@@ -293,7 +298,6 @@ private struct MoreTilePicker: View {
                                            options: ["tz": "America/New_York"]), symbol: "globe")
                 AddRow(tile: DashboardTile(kind: .countdown, title: "Countdown", subtitle: "Days until something",
                                            options: ["date": TileDates.text(Date().addingTimeInterval(30 * 86_400))]), symbol: "calendar.badge.clock")
-                AddRow(tile: DashboardTile(kind: .calendar, title: "Coming up", subtitle: "The next events in your calendar"), symbol: "calendar")
             }
             SwiftUI.Section("Getting about") {
                 AddRow(tile: DashboardTile(kind: .trains, title: "Trains", subtitle: "Live departures from a station: choose the direction and operators"),

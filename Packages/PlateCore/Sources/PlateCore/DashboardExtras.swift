@@ -9,14 +9,104 @@ public struct DashboardPage: Codable, Hashable, Sendable, Identifiable {
     public var id: UUID
     public var name: String
     public var icon: String
-    public init(id: UUID = UUID(), name: String, icon: String = "square.grid.2x2") { self.id = id; self.name = name; self.icon = icon }
+    /// Tiles you arrange, or one column per room with everything in it.
+    public var layout: PageLayout
+    /// For a rooms page: the HomeKit room ids to show, left to right. Empty means every room.
+    public var rooms: [String]
+    public init(id: UUID = UUID(), name: String, icon: String = "square.grid.2x2", layout: PageLayout = .tiles, rooms: [String] = []) {
+        self.id = id; self.name = name; self.icon = icon; self.layout = layout; self.rooms = rooms
+    }
 
-    enum CodingKeys: String, CodingKey { case id, name, icon }
+    enum CodingKeys: String, CodingKey { case id, name, icon, layout, rooms }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = c.value(.id, default: UUID())
         name = c.value(.name, default: "Page")
         icon = c.value(.icon, default: "square.grid.2x2")
+        layout = PageLayout(rawValue: c.value(.layout, default: "tiles")) ?? .tiles
+        rooms = c.value(.rooms, default: [])
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(icon, forKey: .icon)
+        try c.encode(layout.rawValue, forKey: .layout)
+        if !rooms.isEmpty { try c.encode(rooms, forKey: .rooms) }
+    }
+}
+
+public enum PageLayout: String, Codable, Sendable, CaseIterable {
+    case tiles, rooms
+}
+
+/// A page split into one column per room, each with every control in that room.
+public enum RoomsPage {
+    public struct Room: Hashable, Sendable {
+        public var id: String
+        public var name: String
+        public init(id: String, name: String) { self.id = id; self.name = name }
+    }
+
+    /// The rooms to show, left to right: the chosen ones in the order chosen (skipping any that have gone from the
+    /// Home app), or every room by name when none are chosen or none of the chosen ones are left.
+    public static func columns(chosen: [String], available: [Room]) -> [Room] {
+        let byId = Dictionary(available.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var seen = Set<String>()
+        let picked = chosen.compactMap { id -> Room? in
+            guard seen.insert(id).inserted else { return nil }
+            return byId[id]
+        }
+        if !picked.isEmpty { return picked }
+        return available.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Ticks a room on or off the page (a newly ticked room goes on the right). The last room can't be unticked.
+    public static func toggle(_ id: String, chosen: [String], available: [Room]) -> [String] {
+        var current = columns(chosen: chosen, available: available).map(\.id)
+        if let i = current.firstIndex(of: id) {
+            guard current.count > 1 else { return chosen }
+            current.remove(at: i)
+        } else {
+            current.append(id)
+        }
+        return current
+    }
+
+    /// Moves a room one place left (-1) or right (+1).
+    public static func move(_ id: String, by step: Int, chosen: [String], available: [Room]) -> [String] {
+        var current = columns(chosen: chosen, available: available).map(\.id)
+        guard let i = current.firstIndex(of: id) else { return chosen }
+        let j = i + step
+        guard current.indices.contains(j) else { return chosen }
+        current.swapAt(i, j)
+        return current
+    }
+
+    /// The order things appear in a room: lights first, then plugs and switches, fans, blinds, heating, locks, sensors.
+    public static func sorted(_ accessories: [AccessorySummary]) -> [AccessorySummary] {
+        func rank(_ c: AccessorySummary.Category) -> Int {
+            switch c {
+            case .light: return 0
+            case .outlet, .switchControl: return 1
+            case .fan: return 2
+            case .blinds: return 3
+            case .thermostat: return 4
+            case .lock: return 5
+            case .other: return 6
+            case .sensor: return 7
+            }
+        }
+        return accessories.sorted {
+            rank($0.category) != rank($1.category) ? rank($0.category) < rank($1.category)
+                : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    /// Whether the columns fit side by side, or should stack (a phone in portrait).
+    public static func sideBySide(width: Double, rooms: Int) -> Bool {
+        rooms <= 1 || width / Double(rooms) >= 220
     }
 }
 
@@ -61,9 +151,12 @@ extension HomeDashboard {
             guard let f = tiles.first(where: { $0.id == folder && $0.kind == .folder }) else { return }
             tiles[i].folderId = folder
             tiles[i].pageId = f.pageId
+            tiles[i].row = nil; tiles[i].column = nil
         } else {
             if let old = tiles[i].folderId, let f = tiles.first(where: { $0.id == old }) { tiles[i].pageId = f.pageId }
             tiles[i].folderId = nil
+            // Out of the folder, it goes in the first gap on the page.
+            tiles[i].row = nil; tiles[i].column = nil
         }
         tiles[i].updatedAt = Date()
         updatedAt = Date()
@@ -71,13 +164,21 @@ extension HomeDashboard {
 
     /// Adds a page and returns its id. The first time, the existing tiles become the "Home" page.
     @discardableResult
-    public mutating func addPage(named name: String, icon: String = "square.grid.2x2") -> UUID {
+    public mutating func addPage(named name: String, icon: String = "square.grid.2x2", layout: PageLayout = .tiles) -> UUID {
         if pages.isEmpty { pages = [DashboardPage(id: HomeDashboard.firstPageId, name: "Home", icon: "house")] }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let page = DashboardPage(name: trimmed.isEmpty ? "Page \(pages.count + 1)" : trimmed, icon: icon)
+        let page = DashboardPage(name: trimmed.isEmpty ? "Page \(pages.count + 1)" : trimmed, icon: icon, layout: layout)
         pages.append(page)
         updatedAt = Date()
         return page.id
+    }
+
+    /// Changes a page's settings (layout, rooms). Turns the single built-in page into a saved one first if needed.
+    public mutating func updatePage(_ id: UUID, _ change: (inout DashboardPage) -> Void) {
+        if pages.isEmpty { pages = pageList }
+        guard let i = pages.firstIndex(where: { $0.id == id }) else { return }
+        change(&pages[i])
+        updatedAt = Date()
     }
 
     /// Removes a page. Its tiles move to the first page rather than being lost. The last page can't be removed.
@@ -98,6 +199,8 @@ extension HomeDashboard {
         guard let i = tiles.firstIndex(where: { $0.id == id }) else { return }
         tiles[i].pageId = page
         tiles[i].folderId = nil
+        // It goes in the first gap on its new page.
+        tiles[i].row = nil; tiles[i].column = nil
         // A folder takes its contents with it.
         if tiles[i].kind == .folder { for j in tiles.indices where tiles[j].folderId == id { tiles[j].pageId = page } }
         tiles[i].updatedAt = Date()
