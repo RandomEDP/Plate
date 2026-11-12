@@ -37,7 +37,7 @@ struct AppleEngine: RecipeAIEngine {
         var servings: Int
         @Guide(description: "Total time in minutes")
         var minutes: Int
-        @Guide(description: "Ingredients, one per item, amount first, for example 200g chicken breast")
+        @Guide(description: "Ingredients, one food per item (never two foods joined with and), amount first, for example 200g chicken breast")
         var ingredients: [String]
         @Guide(description: "Method steps, short sentences")
         var steps: [String]
