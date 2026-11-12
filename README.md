@@ -12,7 +12,8 @@ shopping list that fills the gaps.
   portion and portions scaled for however many people.
 - **Import from Instagram and TikTok:** paste a Reel or TikTok link (or the caption itself), or tap Share → Save to Plate
   straight from the video. Plate reads the recipe from the caption: ingredients, method, servings, and any macros the
-  creator gave.
+  creator gave. Recipes → Import many takes a whole list of links (or several captions split by `---`) at once,
+  skipping any you've already saved.
 - **Ideas:** what you can make now, what you nearly can, and variations that swap a missing ingredient for one you have.
   With AI on, brand-new dishes from what's in your kitchen.
 - **Plan:** pick how many breakfasts, lunches, dinners and snacks a week, how many different recipes for each, and how
@@ -66,7 +67,7 @@ GitHub → Actions → iOS → Run workflow (TestFlight ticked). The build numbe
 1. **Register the app IDs.** developer.apple.com → Certificates, Identifiers & Profiles → Identifiers → + → App IDs → App:
    - `com.randomedp.plate` (the app), with **App Groups** ticked
    - `com.randomedp.plate.share` (the share extension), with **App Groups** ticked
-2. **Register the app group.** Identifiers → + → App Groups → `group.com.randomedp.plate` (all lower case). Then on
+2. **Register the app group.** Identifiers → + → App Groups → `group.com.randomedp.plate.share` (all lower case). Then on
    each of the two app IDs, App Groups → Configure → tick it.
 3. **Create the app.** App Store Connect → Apps → + → New App: iOS, name *Plate* (or another if taken), bundle ID
    `com.randomedp.plate`, SKU `plate`.

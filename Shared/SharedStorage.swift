@@ -4,7 +4,7 @@ import PlateCore
 /// Where Plate keeps its files. The app and the "Save to Plate" share extension both use the app group's folder, so a
 /// recipe saved from Instagram or TikTok is waiting in the app the next time it opens.
 enum SharedStorage {
-    static let appGroup = "group.com.randomedp.plate"
+    static let appGroup = "group.com.randomedp.plate.share"
 
     static var folder: URL {
         if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
