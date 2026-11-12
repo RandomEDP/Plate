@@ -34,23 +34,21 @@ public enum OstaImport {
         URL(string: "https://ostarecipes.com/s/recipes/\(id)")!
     }
 
-    /// Recipe links found on a folder page. The page's own links come first: when it has any, they're the only ones
-    /// used, because "recipes/ID" in the page's code also matches ids that aren't share links (Ethan's import, 12
-    /// November 2026, saved links that open Osta's "Recipe not found"). The code is only searched when the page has no
-    /// recipe links at all.
+    /// Recipe links found on a folder page: from its links, or from "recipes/ID" anywhere in the page's code.
     public static func recipeLinks(in found: [String]) -> [URL] {
-        var linked: [String] = []
-        var inCode: [String] = []
+        var out: [URL] = []
+        var seen = Set<String>()
         let re = try? NSRegularExpression(pattern: #"recipes?/([A-Za-z0-9_-]{8,40})"#)
         for s in found {
+            var id: String?
             if let u = URL(string: s), case .recipe(let rid)? = kind(of: u) {
-                linked.append(rid)
+                id = rid
             } else if let re, let m = re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) {
-                inCode.append((s as NSString).substring(with: m.range(at: 1)))
+                id = (s as NSString).substring(with: m.range(at: 1))
             }
+            if let id, seen.insert(id).inserted { out.append(recipeURL(id: id)) }
         }
-        var seen = Set<String>()
-        return (linked.isEmpty ? inCode : linked).filter { seen.insert($0).inserted }.map(recipeURL(id:))
+        return out
     }
 
     /// The page as the web view saw it.
@@ -135,7 +133,8 @@ public enum OstaImport {
     public enum Miss: Equatable, Sendable {
         /// Nothing drawn yet (still loading, or the connection dropped).
         case empty
-        /// Osta's "Recipe not found": nothing is shared at this link.
+        /// Osta's "Recipe not found". Osta's own share links do this for some recipes that open fine in its app
+        /// (Ethan, 12 November 2026), so the website just won't show them.
         case notFound
         /// Not a recipe page: Osta's home page or a "get the app" page, which is where a private or removed recipe lands.
         case notARecipe

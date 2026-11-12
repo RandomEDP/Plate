@@ -18,7 +18,7 @@ final class OstaReader {
             case .noRecipe(.unreadable):
                 return "Osta showed the recipe, but Plate couldn't pick out its ingredients. Tap Open, and send a screenshot of the page so the reader can be fixed."
             case .noRecipe(.notFound):
-                return "Osta says \"Recipe not found\" at this link. In the Osta app, open the recipe, tap Share, and import that link instead."
+                return "Osta's website says \"Recipe not found\": Osta only shows this one in its app. Copy the recipe's text from the Osta app and paste it into Recipes → From a Reel or TikTok instead."
             case .noRecipe(.empty):
                 return "Osta's page didn't load in 20 seconds. Check your connection and try again."
             case .noRecipesInFolder:
