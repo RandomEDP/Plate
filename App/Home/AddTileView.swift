@@ -58,7 +58,7 @@ private struct AddRow: View {
     @Environment(\.addToPage) private var page
 
     var body: some View {
-        let added = model.household.dashboard.contains(tile.kind, ref: tile.ref) && !tile.kind.canRepeat
+        let added = model.household.dashboard.contains(tile.kind, ref: tile.ref) && !tile.kind.canRepeat && !(tile.kind.needsRef && tile.ref == nil)
         Button {
             if added {
                 if let existing = model.household.dashboard.tiles.first(where: { $0.kind == tile.kind && $0.ref == tile.ref }) {
@@ -170,6 +170,8 @@ private struct AlbumPicker: View {
                 SwiftUI.Section {
                     AddRow(tile: DashboardTile(kind: .nowPlaying, title: "Now playing", subtitle: "Play, pause, skip and AirPlay"),
                            symbol: "play.circle")
+                    AddRow(tile: DashboardTile(kind: .musicAlbum, title: "Music tile", subtitle: "Add it empty, then tap it to search all of Apple Music"),
+                           symbol: "plus.square.dashed")
                 }
                 if !results.isEmpty {
                     SwiftUI.Section("Apple Music") { ForEach(results) { row($0) } }
@@ -282,6 +284,10 @@ private struct MoreTilePicker: View {
                 AddRow(tile: DashboardTile(kind: .countdown, title: "Countdown", subtitle: "Days until something",
                                            options: ["date": TileDates.text(Date().addingTimeInterval(30 * 86_400))]), symbol: "calendar.badge.clock")
                 AddRow(tile: DashboardTile(kind: .calendar, title: "Coming up", subtitle: "The next events in your calendar"), symbol: "calendar")
+            }
+            SwiftUI.Section("Getting about") {
+                AddRow(tile: DashboardTile(kind: .trains, title: "Trains", subtitle: "Live departures from a station: choose the direction and operators"),
+                       symbol: "tram.fill")
             }
             SwiftUI.Section("The flat") {
                 AddRow(tile: DashboardTile(kind: .chores, title: "Chores", subtitle: "Whose turn it is, and a tick when it's done"), symbol: "checklist")

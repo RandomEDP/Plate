@@ -59,8 +59,8 @@ struct IdleArtworkView: View {
     @Environment(WeatherStore.self) private var weather
     @Environment(AppModel.self) private var model
     @Environment(\.displayScale) private var scale
-    @ObservedObject private var playerState = ApplicationMusicPlayer.shared.state
-    @ObservedObject private var queue = ApplicationMusicPlayer.shared.queue
+    @ObservedObject private var playerState = SystemMusicPlayer.shared.state
+    @ObservedObject private var queue = SystemMusicPlayer.shared.queue
     @State private var photoIds: [String] = []
     @State private var current: UIImage?
     @State private var currentId: String?
@@ -128,7 +128,7 @@ struct IdleArtworkView: View {
 
 /// The cover of what's playing, big, on a blurred copy of itself, with the song and artist.
 private struct NowPlayingArt: View {
-    let entry: ApplicationMusicPlayer.Queue.Entry
+    let entry: MusicPlayer.Queue.Entry
     let artwork: Artwork
     let size: CGSize
 

@@ -77,6 +77,8 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     case battery
     /// Several accessories switched together. `options["ids"]` lists them.
     case group
+    /// Live departures from a station. `options` hold "from", "to", "ops" and "fast".
+    case trains
     /// A title across the grid, to split it into sections.
     case heading
     /// An empty gap.
@@ -99,7 +101,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles you can have any number of, each set up differently.
     public var canRepeat: Bool {
         switch self {
-        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi: return true
+        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains: return true
         default: return false
         }
     }
@@ -179,7 +181,7 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
     public static func defaultSize(for kind: TileKind) -> TileSize {
         switch kind {
         case .clock, .musicAlbum, .todaysMeals, .shoppingList, .camera, .photoFrame, .playlist, .calendar, .chores,
-             .wifi: return .large
+             .wifi, .trains: return .large
         case .nowPlaying, .useSoon, .note, .room, .weather, .timer, .bins, .climate, .forecast, .activity, .command,
              .heading, .cookNow, .macros: return .wide
         default: return .small
@@ -351,7 +353,8 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
     /// Adds a tile, unless the same thing is already there. Returns whether it was added.
     @discardableResult
     public mutating func add(_ tile: DashboardTile) -> Bool {
-        if tile.kind.canRepeat || !contains(tile.kind, ref: tile.ref) {
+        // A music or photo tile added empty (to be chosen in its editor) never counts as a duplicate.
+        if tile.kind.canRepeat || (tile.kind.needsRef && tile.ref == nil) || !contains(tile.kind, ref: tile.ref) {
             tiles.append(tile)
             updatedAt = Date()
             return true

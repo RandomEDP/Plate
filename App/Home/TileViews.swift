@@ -52,6 +52,7 @@ struct TileView: View {
         case .briefing: BriefingTile(tile: tile, editing: editing)
         case .battery: BatteryTile(tile: tile)
         case .group: GroupTile(tile: tile, editing: editing)
+        case .trains: TrainTile(tile: tile)
         case .heading: HeadingTile(tile: tile)
         case .spacer: SpacerTile(editing: editing)
         case .unknown: Color.clear
@@ -289,13 +290,16 @@ struct AlbumTile: View {
     @Environment(MusicStore.self) private var music
     @Environment(\.dashStyle) private var style
     @State private var artwork: Artwork?
+    @State private var choosing = false
+    @Environment(AppModel.self) private var model
 
     private var type: String? { tile.kind == .playlist ? tile.options["type"] ?? "playlist" : nil }
 
     var body: some View {
         Button {
             Feedback.shared.play(.tap)
-            Task { if let ref = tile.ref { await music.play(ref, type: type) } }
+            // An empty tile opens the search; a chosen one plays.
+            if let ref = tile.ref { Task { await music.play(ref, type: type) } } else { choosing = true }
         } label: {
             GeometryReader { geo in
                 ZStack(alignment: .bottomLeading) {
@@ -310,11 +314,11 @@ struct AlbumTile: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(tile.name()).font(.headline).lineLimit(1)
-                            if let s = tile.subtitle, geo.size.width > 150 { Text(s).font(.subheadline).opacity(0.8).lineLimit(1) }
+                            Text(tile.ref == nil ? "Tap to choose music" : tile.name()).font(.headline).lineLimit(1)
+                            if let s = tile.subtitle, tile.ref != nil, geo.size.width > 150 { Text(s).font(.subheadline).opacity(0.8).lineLimit(1) }
                         }
                         Spacer(minLength: 0)
-                        if geo.size.width > 150 { Image(systemName: "play.circle.fill").font(.system(size: 34)) }
+                        if geo.size.width > 150 { Image(systemName: tile.ref == nil ? "magnifyingglass.circle.fill" : "play.circle.fill").font(.system(size: 34)) }
                     }
                     .foregroundStyle(.white)
                     .padding(14)
@@ -325,8 +329,19 @@ struct AlbumTile: View {
         }
         .buttonStyle(.plain)
         .disabled(editing)
+        .contextMenu { if !editing { Button("Choose different music", systemImage: "magnifyingglass") { choosing = true } } }
+        .sheet(isPresented: $choosing) {
+            NavigationStack {
+                MusicPickerView { found in
+                    var t = tile
+                    t.setMusic(found)
+                    model.household.dashboard.update(t)
+                }
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { choosing = false } } }
+            }
+        }
         .task(id: tile.ref) {
-            guard let ref = tile.ref else { return }
+            guard let ref = tile.ref else { artwork = nil; return }
             if type == nil { artwork = await music.album(ref)?.artwork }
             else if type == "playlist" { artwork = await music.playlist(ref)?.artwork }
         }
@@ -336,8 +351,8 @@ struct AlbumTile: View {
 struct NowPlayingTile: View {
     let editing: Bool
     @Environment(MusicStore.self) private var music
-    @ObservedObject private var state = ApplicationMusicPlayer.shared.state
-    @ObservedObject private var queue = ApplicationMusicPlayer.shared.queue
+    @ObservedObject private var state = SystemMusicPlayer.shared.state
+    @ObservedObject private var queue = SystemMusicPlayer.shared.queue
 
     var body: some View {
         let entry = queue.currentEntry
@@ -355,7 +370,7 @@ struct NowPlayingTile: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 6) {
                     Text(entry?.title ?? "Nothing playing").font(.headline).lineLimit(1)
-                    Text(entry?.subtitle ?? "Tap a pinned album to play it").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(entry?.subtitle ?? "Play something here or in Music").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     HStack(spacing: 22) {
                         Button { Task { try? await music.player.skipToPreviousEntry() } } label: { Image(systemName: "backward.fill") }
                         Button { Task { await music.togglePlayPause() } } label: {
