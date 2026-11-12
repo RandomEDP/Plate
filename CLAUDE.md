@@ -79,7 +79,10 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   (pages, timers, chores, bin days, routines, light shows) and `Commands.swift` (typed commands, no AI), each with
   its own test file. Adding a `TileKind` means a case in `TileView`, a row in `AddTileView` and, if it has settings,
   a case in `TileEditorView.particular`; per-tile settings go in `tile.options`. The guest Wi-Fi password lives in the
-  keychain (`SecretStore`), never in the household file. Devices are still set up and
+  keychain (`SecretStore`), never in the household file. The trains tile (`Trains.swift`, `TrainTile.swift`) reads National
+  Rail's Live Departure Board from `api1.raildata.org.uk` with the user's own key (keychain, header `x-apikey`); the
+  request carries only station codes. Music uses `SystemMusicPlayer`, so the dashboard follows whatever the Music app
+  is playing (Ethan found `ApplicationMusicPlayer` didn't, 12 November 2026). Devices are still set up and
   automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The weather tile
   (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
   legal link. The app needs the HomeKit and WeatherKit capabilities and the MusicKit and WeatherKit app services ticked on `com.randomedp.plate`; "Open in wall mode" is a per-device

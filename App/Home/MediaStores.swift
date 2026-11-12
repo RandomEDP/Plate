@@ -14,7 +14,9 @@ final class MusicStore {
     private var cache: [String: Album] = [:]
     private var playlists: [String: Playlist] = [:]
 
-    var player: ApplicationMusicPlayer { ApplicationMusicPlayer.shared }
+    /// The system player, the one the Music app itself uses. So the dashboard shows and controls whatever is playing on
+    /// this device, whether it was started here, in Music or from Control Centre, and music carries on if Plate closes.
+    var player: SystemMusicPlayer { SystemMusicPlayer.shared }
 
     func authorise() async {
         status = await MusicAuthorization.request()
@@ -141,6 +143,43 @@ final class MusicStore {
             problem = "Couldn't search Apple Music: \(error.localizedDescription)"
             return ([], [])
         }
+    }
+
+    /// Something found to pin: an album, playlist or station.
+    struct Found: Identifiable {
+        var id: String
+        var title: String
+        var detail: String
+        /// nil for an album, otherwise "playlist" or "station".
+        var type: String?
+        var artwork: Artwork?
+        var inLibrary: Bool
+    }
+
+    /// Searches your library and the whole Apple Music catalogue at once, your own things first.
+    func searchEverything(_ term: String) async -> [Found] {
+        let term = term.trimmingCharacters(in: .whitespaces)
+        guard !term.isEmpty else { return [] }
+        var out: [Found] = []
+        var seen = Set<String>()
+        func add(_ f: Found) { if seen.insert("\(f.type ?? "album")-\(f.title.lowercased())-\(f.detail.lowercased())").inserted { out.append(f) } }
+        var mine = MusicLibrarySearchRequest(term: term, types: [Album.self, Playlist.self])
+        mine.limit = 12
+        if let r = try? await mine.response() {
+            for a in r.albums { cache[a.id.rawValue] = a; add(Found(id: a.id.rawValue, title: a.title, detail: a.artistName, type: nil, artwork: a.artwork, inLibrary: true)) }
+            for p in r.playlists { playlists[p.id.rawValue] = p; add(Found(id: p.id.rawValue, title: p.name, detail: "Your playlist", type: "playlist", artwork: p.artwork, inLibrary: true)) }
+        }
+        do {
+            var request = MusicCatalogSearchRequest(term: term, types: [Album.self, Playlist.self, Station.self])
+            request.limit = 20
+            let r = try await request.response()
+            for a in r.albums { cache[a.id.rawValue] = a; add(Found(id: a.id.rawValue, title: a.title, detail: a.artistName, type: nil, artwork: a.artwork, inLibrary: false)) }
+            for p in r.playlists { playlists[p.id.rawValue] = p; add(Found(id: p.id.rawValue, title: p.name, detail: p.curatorName ?? "Playlist", type: "playlist", artwork: p.artwork, inLibrary: false)) }
+            for s in r.stations { add(Found(id: s.id.rawValue, title: s.name, detail: "Station", type: "station", artwork: s.artwork, inLibrary: false)) }
+        } catch {
+            if out.isEmpty { problem = "Couldn't search Apple Music: \(error.localizedDescription)" }
+        }
+        return out
     }
 
     func togglePlayPause() async {

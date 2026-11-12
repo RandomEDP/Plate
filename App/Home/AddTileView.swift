@@ -12,6 +12,8 @@ struct AddTileView: View {
     @State private var section: Section = .home
     /// The page new tiles go on (nil when the dashboard has a single page).
     var page: UUID?
+    /// The folder new tiles go into, when adding from inside one.
+    var folder: UUID?
 
     enum Section: String, CaseIterable, Identifiable {
         case home = "Home", music = "Music", plate = "Kitchen", more = "More"
@@ -34,6 +36,7 @@ struct AddTileView: View {
                 }
             }
             .environment(\.addToPage, page)
+            .environment(\.addToFolder, folder)
             .navigationTitle("Add to dashboard")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -44,7 +47,12 @@ struct AddTileView: View {
 
 /// A row that adds the tile when tapped, or shows a tick if it's already there.
 private struct AddToPageKey: EnvironmentKey { static let defaultValue: UUID? = nil }
+private struct AddToFolderKey: EnvironmentKey { static let defaultValue: UUID? = nil }
 extension EnvironmentValues {
+    var addToFolder: UUID? {
+        get { self[AddToFolderKey.self] }
+        set { self[AddToFolderKey.self] = newValue }
+    }
     var addToPage: UUID? {
         get { self[AddToPageKey.self] }
         set { self[AddToPageKey.self] = newValue }
@@ -56,9 +64,10 @@ private struct AddRow: View {
     let symbol: String
     @Environment(AppModel.self) private var model
     @Environment(\.addToPage) private var page
+    @Environment(\.addToFolder) private var folder
 
     var body: some View {
-        let added = model.household.dashboard.contains(tile.kind, ref: tile.ref) && !tile.kind.canRepeat
+        let added = model.household.dashboard.contains(tile.kind, ref: tile.ref) && !tile.kind.canRepeat && !(tile.kind.needsRef && tile.ref == nil)
         Button {
             if added {
                 if let existing = model.household.dashboard.tiles.first(where: { $0.kind == tile.kind && $0.ref == tile.ref }) {
@@ -67,6 +76,7 @@ private struct AddRow: View {
             } else {
                 var t = tile
                 t.pageId = page
+                if t.kind != .folder { t.folderId = folder }
                 // The description under the row is for choosing; it isn't shown on these tiles.
                 if !t.kind.needsRef && t.kind != .note { t.subtitle = nil }
                 model.household.dashboard.add(t)
@@ -114,7 +124,7 @@ private struct HomeTilePicker: View {
                     AddRow(tile: DashboardTile(kind: .allOff, title: "All lights", subtitle: "How many are on, and one tap for all off"), symbol: "lightbulb.slash")
                     AddRow(tile: DashboardTile(kind: .climate, title: "Climate", subtitle: "Temperature and humidity from every sensor"), symbol: "thermometer.medium")
                     AddRow(tile: DashboardTile(kind: .battery, title: "Batteries", subtitle: "Warns when an accessory's battery is low"), symbol: "battery.25")
-                    AddRow(tile: DashboardTile(kind: .group, title: "Group", subtitle: "Several things you choose, switched together"), symbol: "square.grid.2x2")
+                    AddRow(tile: DashboardTile(kind: .group, title: "Switch together", subtitle: "Several lights or plugs you choose, on and off with one tap"), symbol: "square.grid.2x2")
                     AddRow(tile: DashboardTile(kind: .activity, title: "Recently", subtitle: "What's been switched from the dashboard"), symbol: "clock.arrow.circlepath")
                     ForEach(LightShow.allCases) { show in
                         AddRow(tile: DashboardTile(kind: .lightShow, title: show.title, subtitle: "Light show for colour bulbs", options: ["show": show.rawValue]),
@@ -170,6 +180,8 @@ private struct AlbumPicker: View {
                 SwiftUI.Section {
                     AddRow(tile: DashboardTile(kind: .nowPlaying, title: "Now playing", subtitle: "Play, pause, skip and AirPlay"),
                            symbol: "play.circle")
+                    AddRow(tile: DashboardTile(kind: .musicAlbum, title: "Music tile", subtitle: "Add it empty, then tap it to search all of Apple Music"),
+                           symbol: "plus.square.dashed")
                 }
                 if !results.isEmpty {
                     SwiftUI.Section("Apple Music") { ForEach(results) { row($0) } }
@@ -283,6 +295,10 @@ private struct MoreTilePicker: View {
                                            options: ["date": TileDates.text(Date().addingTimeInterval(30 * 86_400))]), symbol: "calendar.badge.clock")
                 AddRow(tile: DashboardTile(kind: .calendar, title: "Coming up", subtitle: "The next events in your calendar"), symbol: "calendar")
             }
+            SwiftUI.Section("Getting about") {
+                AddRow(tile: DashboardTile(kind: .trains, title: "Trains", subtitle: "Live departures from a station: choose the direction and operators"),
+                       symbol: "tram.fill")
+            }
             SwiftUI.Section("The flat") {
                 AddRow(tile: DashboardTile(kind: .chores, title: "Chores", subtitle: "Whose turn it is, and a tick when it's done"), symbol: "checklist")
                 AddRow(tile: DashboardTile(kind: .bins, title: "Bin days", subtitle: "Which bin goes out next"), symbol: "trash")
@@ -299,6 +315,7 @@ private struct MoreTilePicker: View {
                 Text("Make routines (several steps from one tap) in the dashboard's settings: the cog in edit mode.")
             }
             SwiftUI.Section("Layout") {
+                AddRow(tile: DashboardTile(kind: .folder, title: "Folder", subtitle: "Holds other tiles: tap to open it. Move tiles in from their menu"), symbol: "folder")
                 AddRow(tile: DashboardTile(kind: .heading, title: "Heading", subtitle: "A title to split the grid into sections"), symbol: "textformat.size")
                 AddRow(tile: DashboardTile(kind: .spacer, title: "Gap", subtitle: "An empty space"), symbol: "square.dashed")
             }

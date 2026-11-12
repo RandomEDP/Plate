@@ -119,7 +119,7 @@ struct TileCard<Content: View>: View {
 struct DashboardBackground: View {
     let style: DashboardStyle
     @Environment(PhotoStore.self) private var photos
-    @ObservedObject private var queue = ApplicationMusicPlayer.shared.queue
+    @ObservedObject private var queue = SystemMusicPlayer.shared.queue
     @State private var photo: UIImage?
 
     var body: some View {

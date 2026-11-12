@@ -362,6 +362,22 @@ struct TileEditorView: View {
                 }
             } header: { Text("What's in the group") } footer: { Text("One tap switches all of these together.") }
             .onAppear { home.start() }
+        case .trains:
+            TrainSettings(options: $draft.options)
+        case .musicAlbum, .playlist:
+            Section {
+                NavigationLink {
+                    MusicPickerView { draft.setMusic($0) }
+                } label: {
+                    HStack {
+                        Text(draft.ref == nil ? "Choose music" : "Change the music")
+                        Spacer()
+                        Text(draft.ref == nil ? "" : draft.title).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            } header: { Text("What it plays") } footer: {
+                Text("Search your library and the whole of Apple Music: albums, playlists and stations.")
+            }
         case .chores:
             Section { NavigationLink("Edit the chores") { ChoresEditor() } }
         case .bins:
