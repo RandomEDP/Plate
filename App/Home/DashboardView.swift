@@ -48,7 +48,8 @@ struct DashboardView: View {
             let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: spacing) {
-                    header
+                    // The clock needs about 230 points in the middle, clear of the greeting and the buttons.
+                    header(wide: geo.size.width >= 800)
                     if pages.count > 1 || editing { pageBar }
                     if let problem = home.problem ?? music.problem {
                         Label(problem, systemImage: "exclamationmark.triangle.fill")
@@ -174,7 +175,8 @@ struct DashboardView: View {
 
     // MARK: Top row
 
-    private var header: some View {
+    /// The top row: greeting on the left, the time (and date) in the middle when there's room, buttons on the right.
+    private func header(wide: Bool) -> some View {
         HStack(alignment: .top, spacing: 12) {
             if style.showGreeting {
                 TimelineView(.everyMinute) { ctx in
@@ -192,6 +194,29 @@ struct DashboardView: View {
             Spacer(minLength: 0)
             controls
         }
+        .overlay(alignment: .top) {
+            // Centred on the whole row, not the gap, so it sits in the middle of the screen.
+            if wide && style.headerClock != .off { headerClock }
+        }
+    }
+
+    private var headerClock: some View {
+        TimelineView(.everyMinute) { ctx in
+            VStack(spacing: 0) {
+                Text(HeaderClock.timeText(ctx.date, calendar: .plate))
+                    .font(.system(size: wall ? 64 : 52, weight: .semibold).monospacedDigit())
+                    .contentTransition(.numericText())
+                    .animation(.snappy, value: HeaderClock.timeText(ctx.date, calendar: .plate))
+                if style.headerClock == .timeAndDate {
+                    Text(HeaderClock.dateText(ctx.date, calendar: .plate))
+                        .font(.title3.weight(.medium)).foregroundStyle(.secondary)
+                }
+            }
+            .lineLimit(1)
+            .padding(.top, -6)
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
     }
 
     /// Small buttons that stay out of the way: faint in wall mode until you're editing.

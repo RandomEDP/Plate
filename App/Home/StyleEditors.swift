@@ -106,6 +106,9 @@ struct StyleEditorView: View {
                         ForEach(FontLook.allCases) { Text($0.title).fontDesign($0.design).tag($0) }
                     }
                     Toggle("Greeting and summary at the top", isOn: $model.household.dashboard.style.showGreeting)
+                    Picker("Clock in the middle", selection: $model.household.dashboard.style.headerClock) {
+                        ForEach(HeaderClock.allCases) { Text($0.title).tag($0) }
+                    }
                 }
 
                 Section {
