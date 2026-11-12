@@ -28,6 +28,7 @@ struct DashboardView: View {
     @State private var dragging: UUID?
     @State private var page: UUID? = HomeDashboard.firstPageId
     @State private var renaming: DashboardPage?
+    @State private var choosingRooms: DashboardPage?
     @State private var newName = ""
 
     private var dashboard: HomeDashboard { model.household.dashboard }
@@ -69,7 +70,12 @@ struct DashboardView: View {
                     TabView(selection: $page) {
                         ForEach(pages) { p in
                             GeometryReader { pg in
-                                pageView(p, width: pg.size.width, spacing: spacing)
+                                if p.layout == .rooms {
+                                    RoomsPageView(page: p, width: pg.size.width, spacing: spacing, editing: editing,
+                                                  chooseRooms: { choosingRooms = p })
+                                } else {
+                                    pageView(p, width: pg.size.width, spacing: spacing)
+                                }
                             }
                             .tag(Optional(p.id))
                         }
@@ -94,6 +100,7 @@ struct DashboardView: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .sheet(item: $editTile) { TileEditorView(tile: $0) }
+        .sheet(item: $choosingRooms) { RoomsPageSettings(pageId: $0.id) }
         .alert("Name this page", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Save") {
@@ -176,6 +183,15 @@ struct DashboardView: View {
     }
 
     /// Adds a page and goes to it.
+    private func addRoomsPage() {
+        let id = model.household.dashboard.addPage(named: "Rooms", icon: "rectangle.split.3x1", layout: .rooms)
+        withAnimation(.snappy) { page = id }
+    }
+
+    private func setLayout(_ id: UUID, _ layout: PageLayout) {
+        withAnimation(.snappy) { model.household.dashboard.updatePage(id) { $0.layout = layout } }
+    }
+
     private func addPage() {
         let id = model.household.dashboard.addPage(named: "")
         withAnimation(.snappy) { page = id }
@@ -186,6 +202,7 @@ struct DashboardView: View {
     private var needsHome: Bool {
         let kinds: Set<TileKind> = [.accessory, .scene, .room, .group, .camera, .climate, .allOff, .battery, .lightShow, .command]
         return dashboard.tiles.contains { kinds.contains($0.kind) } || !dashboard.routines.isEmpty
+            || dashboard.pageList.contains { $0.layout == .rooms }
     }
 
     // MARK: Top row
@@ -278,6 +295,12 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        if p.layout == .rooms {
+                            Button("Choose rooms", systemImage: "checklist") { choosingRooms = p }
+                            Button("Show as tiles", systemImage: "square.grid.2x2") { setLayout(p.id, .tiles) }
+                        } else {
+                            Button("Show as rooms", systemImage: "rectangle.split.3x1") { setLayout(p.id, .rooms) }
+                        }
                         if !dashboard.pages.isEmpty {
                             Button("Rename", systemImage: "pencil") { newName = p.name; renaming = p }
                             Menu("Icon") {
@@ -285,9 +308,11 @@ struct DashboardView: View {
                                     Button { setIcon(p.id, i) } label: { Label(i, systemImage: i) }
                                 }
                             }
-                            Button("Tidy this page", systemImage: "rectangle.3.group") {
+                            if p.layout == .tiles {
+                                Button("Tidy this page", systemImage: "rectangle.3.group") {
                                     withAnimation(.snappy) { model.household.dashboard.tidyPage(p.id) }
                                 }
+                            }
                             if dashboard.pages.count > 1 {
                                 Button("Delete page", systemImage: "trash", role: .destructive) {
                                     withAnimation { model.household.dashboard.removePage(p.id) }
@@ -297,7 +322,10 @@ struct DashboardView: View {
                     }
                 }
                 if editing {
-                    Button { addPage() } label: {
+                    Menu {
+                        Button("Page of tiles", systemImage: "square.grid.2x2") { addPage() }
+                        Button("Rooms side by side", systemImage: "rectangle.split.3x1") { addRoomsPage() }
+                    } label: {
                         Label("New page", systemImage: "plus")
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 14).padding(.vertical, 8)
