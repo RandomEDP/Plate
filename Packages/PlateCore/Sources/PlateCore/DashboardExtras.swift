@@ -61,9 +61,12 @@ extension HomeDashboard {
             guard let f = tiles.first(where: { $0.id == folder && $0.kind == .folder }) else { return }
             tiles[i].folderId = folder
             tiles[i].pageId = f.pageId
+            tiles[i].row = nil; tiles[i].column = nil
         } else {
             if let old = tiles[i].folderId, let f = tiles.first(where: { $0.id == old }) { tiles[i].pageId = f.pageId }
             tiles[i].folderId = nil
+            // Out of the folder, it goes in the first gap on the page.
+            tiles[i].row = nil; tiles[i].column = nil
         }
         tiles[i].updatedAt = Date()
         updatedAt = Date()
@@ -98,6 +101,8 @@ extension HomeDashboard {
         guard let i = tiles.firstIndex(where: { $0.id == id }) else { return }
         tiles[i].pageId = page
         tiles[i].folderId = nil
+        // It goes in the first gap on its new page.
+        tiles[i].row = nil; tiles[i].column = nil
         // A folder takes its contents with it.
         if tiles[i].kind == .folder { for j in tiles.indices where tiles[j].folderId == id { tiles[j].pageId = page } }
         tiles[i].updatedAt = Date()

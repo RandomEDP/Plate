@@ -126,10 +126,28 @@ struct DashboardView: View {
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 60)
                 } else {
-                    TileGrid(columns: cols, spacing: spacing, cell: cell) {
-                        ForEach(tiles) { tile in
-                            tileCell(tile)
-                                .layoutValue(key: TileSizeKey.self, value: tile.size)
+                    let placed = DashboardGrid.place(tiles.map { (id: $0.id, size: $0.size, row: $0.row, column: $0.column) }, columns: cols)
+                    let spots = Dictionary(placed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                    // While editing, two spare rows below the tiles to drag into.
+                    let rows = DashboardGrid.rowCount(placed) + (editing ? 2 : 0)
+                    ZStack(alignment: .topLeading) {
+                        if editing {
+                            EmptyCells(columns: cols, rows: rows, cell: cell, spacing: spacing, placed: placed) { r, c in
+                                guard let id = dragging else { return false }
+                                withAnimation(.spring(duration: 0.3)) {
+                                    model.household.dashboard.moveTile(id, toRow: r, column: c, columns: cols)
+                                }
+                                Feedback.shared.play(.tap)
+                                dragging = nil
+                                return true
+                            }
+                        }
+                        TileGrid(columns: cols, spacing: spacing, cell: cell, minRows: rows) {
+                            ForEach(tiles) { tile in
+                                tileCell(tile, spot: spots[tile.id], columns: cols)
+                                    .layoutValue(key: TileSizeKey.self, value: tile.size)
+                                    .layoutValue(key: TileSpotKey.self, value: spots[tile.id])
+                            }
                         }
                     }
                     .animation(.spring(duration: 0.3), value: tiles)
@@ -267,6 +285,9 @@ struct DashboardView: View {
                                     Button { setIcon(p.id, i) } label: { Label(i, systemImage: i) }
                                 }
                             }
+                            Button("Tidy this page", systemImage: "rectangle.3.group") {
+                                    withAnimation(.snappy) { model.household.dashboard.tidyPage(p.id) }
+                                }
                             if dashboard.pages.count > 1 {
                                 Button("Delete page", systemImage: "trash", role: .destructive) {
                                     withAnimation { model.household.dashboard.removePage(p.id) }
@@ -295,7 +316,7 @@ struct DashboardView: View {
 
     // MARK: Tiles
 
-    @ViewBuilder private func tileCell(_ tile: DashboardTile) -> some View {
+    @ViewBuilder private func tileCell(_ tile: DashboardTile, spot: TilePlacement?, columns: Int) -> some View {
         let base = TileView(tile: tile, editing: editing)
             .opacity(dragging == tile.id ? 0.4 : 1)
         if editing {
@@ -307,8 +328,13 @@ struct DashboardView: View {
                     dragging = tile.id
                     return NSItemProvider(object: tile.id.uuidString as NSString)
                 }
-                .onDrop(of: [.plainText], delegate: TileDrop(target: tile.id, dragging: $dragging) { from, to in
-                    model.household.dashboard.move(from, before: to)
+                // Dropped on another tile: the two swap places.
+                .onDrop(of: [.plainText], delegate: TileDrop(target: tile.id, dragging: $dragging) { from, _ in
+                    guard let spot else { return }
+                    withAnimation(.spring(duration: 0.3)) {
+                        model.household.dashboard.moveTile(from, toRow: spot.row, column: spot.column, columns: columns)
+                    }
+                    Feedback.shared.play(.tap)
                 })
         } else {
             base
@@ -396,8 +422,6 @@ private struct EditBadge: View {
                                                   set: { s in withAnimation { model.household.dashboard.resize(tile.id, to: s) } })) {
                     ForEach(TileSize.allCases) { Text($0.title).tag($0) }
                 }
-                Button("Move earlier", systemImage: "arrow.left") { withAnimation { model.household.dashboard.shift(tile.id, by: -1) } }
-                Button("Move later", systemImage: "arrow.right") { withAnimation { model.household.dashboard.shift(tile.id, by: 1) } }
                 if model.household.dashboard.pages.count > 1 {
                     Menu("Move to page") {
                         ForEach(model.household.dashboard.pages) { p in
@@ -447,16 +471,61 @@ private struct TileDrop: DropDelegate {
     @Binding var dragging: UUID?
     let move: (UUID, UUID) -> Void
 
-    func dropEntered(info: DropInfo) {
-        guard let dragging, dragging != target else { return }
-        withAnimation { move(dragging, target) }
-    }
-
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
 
     func performDrop(info: DropInfo) -> Bool {
-        dragging = nil
+        defer { dragging = nil }
+        guard let dragging, dragging != target else { return false }
+        move(dragging, target)
         return true
+    }
+}
+
+/// The empty cells of the grid in edit mode, drawn faintly so you can see where a tile can go, and each one a place
+/// to drop a tile.
+private struct EmptyCells: View {
+    let columns: Int
+    let rows: Int
+    let cell: CGFloat
+    let spacing: CGFloat
+    let placed: [TilePlacement]
+    let drop: (Int, Int) -> Bool
+
+    private struct Cell: Hashable, Identifiable {
+        let r: Int
+        let c: Int
+        var id: String { "\(r),\(c)" }
+    }
+
+    var body: some View {
+        let free = (0..<rows).flatMap { r in (0..<columns).map { c in Cell(r: r, c: c) } }.filter { cell in
+            !placed.contains { $0.row <= cell.r && cell.r < $0.row + $0.rows && $0.column <= cell.c && cell.c < $0.column + $0.columns }
+        }
+        ZStack(alignment: .topLeading) {
+            ForEach(free) { spot in
+                DropCell(drop: { drop(spot.r, spot.c) })
+                    .frame(width: cell, height: cell)
+                    .offset(x: CGFloat(spot.c) * (cell + spacing), y: CGFloat(spot.r) * (cell + spacing))
+            }
+        }
+        .frame(width: CGFloat(columns) * cell + CGFloat(max(0, columns - 1)) * spacing,
+               height: CGFloat(rows) * cell + CGFloat(max(0, rows - 1)) * spacing, alignment: .topLeading)
+    }
+}
+
+private struct DropCell: View {
+    let drop: () -> Bool
+    @Environment(\.dashStyle) private var style
+    @State private var over = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 6]))
+            .foregroundStyle(over ? style.accent.color : Color.primary.opacity(0.15))
+            .background(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+                .fill(over ? style.accent.color.opacity(0.18) : Color.clear))
+            .contentShape(Rectangle())
+            .onDrop(of: [.plainText], isTargeted: $over) { _ in drop() }
     }
 }
 
@@ -466,18 +535,26 @@ struct TileSizeKey: LayoutValueKey {
     static let defaultValue: TileSize = .small
 }
 
+/// Where the dashboard has placed a tile. Without it (inside a folder, say) tiles flow into the first gaps.
+struct TileSpotKey: LayoutValueKey {
+    static let defaultValue: TilePlacement? = nil
+}
+
 /// Lays tiles out on a grid of square cells using `DashboardGrid.place` (tested in PlateCore).
 struct TileGrid: Layout {
     let columns: Int
     let spacing: CGFloat
     let cell: CGFloat
+    var minRows = 0
 
     private func placements(_ subviews: Subviews) -> [TilePlacement] {
-        DashboardGrid.place(subviews.map { (UUID(), $0[TileSizeKey.self]) }, columns: columns)
+        let spots = subviews.map { $0[TileSpotKey.self] }
+        if spots.allSatisfy({ $0 != nil }) { return spots.compactMap { $0 } }
+        return DashboardGrid.place(subviews.map { (UUID(), $0[TileSizeKey.self]) }, columns: columns)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = CGFloat(DashboardGrid.rowCount(placements(subviews)))
+        let rows = CGFloat(max(minRows, DashboardGrid.rowCount(placements(subviews))))
         let width = CGFloat(columns) * cell + CGFloat(columns - 1) * spacing
         return CGSize(width: width, height: max(0, rows * cell + (rows - 1) * spacing))
     }
