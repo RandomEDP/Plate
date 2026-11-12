@@ -112,10 +112,11 @@ final class AppModel {
     }
 
     func delete(_ r: Recipe) {
-        if isBuiltIn(r) { household.hiddenBuiltIns.insert(r.id) }
-        household.recipes.removeAll { $0.id == r.id }
-        household.plan.entries.removeAll { $0.recipeId == r.id }
-        for i in household.lists.indices { household.lists[i].meals.removeAll { $0.recipeId == r.id } }
+        household.deleteRecipes([r.id])
+    }
+
+    func delete(_ ids: Set<UUID>) {
+        household.deleteRecipes(ids)
     }
 
     // MARK: Kitchen

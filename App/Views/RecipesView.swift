@@ -9,6 +9,9 @@ struct RecipesView: View {
     @State private var ideas = false
     @State private var newRecipe = false
     @State private var bulkImport = false
+    @State private var selecting = false
+    @State private var selected: Set<UUID> = []
+    @State private var confirmDelete = false
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", ready = "Can make", favourites = "Favourites", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
@@ -32,6 +35,10 @@ struct RecipesView: View {
             case .saved: return r.source.kind != .builtIn
             }
         }
+    }
+
+    func toggle(_ id: UUID) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
 
     var body: some View {
@@ -71,7 +78,20 @@ struct RecipesView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(matches) { m in
-                        NavigationLink(value: m.recipe) { RecipeRow(recipe: m.recipe, match: m) }
+                        if selecting {
+                            Button { toggle(m.recipe.id) } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: selected.contains(m.recipe.id) ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(selected.contains(m.recipe.id) ? Color.accentColor : .secondary)
+                                    RecipeRow(recipe: m.recipe, match: m)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected.contains(m.recipe.id) ? .isSelected : [])
+                        } else {
+                            NavigationLink(value: m.recipe) { RecipeRow(recipe: m.recipe, match: m) }
+                        }
                     }
                 }
             }
@@ -79,6 +99,13 @@ struct RecipesView: View {
             .navigationTitle("Recipes")
             .navigationDestination(for: Recipe.self) { RecipeDetailView(recipe: $0) }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selecting ? "Done" : "Select") {
+                        selecting.toggle()
+                        selected = []
+                    }
+                    .disabled(!selecting && matches.isEmpty)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { bulkImport = true } label: { Image(systemName: "square.and.arrow.down.on.square") }
                         .accessibilityLabel("Import many recipes")
@@ -87,6 +114,35 @@ struct RecipesView: View {
                     Button { newRecipe = true } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("Write a recipe")
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if selecting {
+                    HStack {
+                        let shown = Set(matches.map(\.recipe.id))
+                        Button(shown.isSubset(of: selected) ? "Select none" : "Select all") {
+                            if shown.isSubset(of: selected) { selected.subtract(shown) } else { selected.formUnion(shown) }
+                        }
+                        Spacer()
+                        Button(role: .destructive) { confirmDelete = true } label: {
+                            Label(selected.isEmpty ? "Delete" : "Delete \(selected.count)", systemImage: "trash")
+                        }
+                        .disabled(selected.isEmpty)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(.bar)
+                }
+            }
+            .confirmationDialog("Delete \(selected.count) recipe\(selected.count == 1 ? "" : "s")?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete \(selected.count) recipe\(selected.count == 1 ? "" : "s")", role: .destructive) {
+                    let n = selected.count
+                    model.delete(selected)
+                    selected = []
+                    selecting = false
+                    model.banner = "Deleted \(n) recipe\(n == 1 ? "" : "s")"
+                }
+            } message: {
+                Text("They'll also come off your meal plan and shopping lists. Built-in recipes are only hidden.")
             }
             .sheet(isPresented: $importing) { ImportRecipeView() }
             .sheet(isPresented: $ideas) { IdeasView() }
