@@ -43,9 +43,6 @@ struct DashboardView: View {
         let spacing = CGFloat(style.spacing)
         let pages = dashboard.pageList
         GeometryReader { geo in
-            let width = max(100, geo.size.width - spacing * 2)
-            let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
-            let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: spacing) {
                     // The clock needs about 230 points in the middle, clear of the greeting and the buttons.
@@ -67,21 +64,18 @@ struct DashboardView: View {
                         VStack(alignment: .leading, spacing: spacing) { homeStatus; emptyState }.padding(spacing)
                     }
                 } else {
-                    // Pages sit side by side; swipe to move between them, like the home screen.
-                    ScrollView(.horizontal) {
-                        LazyHStack(spacing: 0) {
-                            ForEach(pages) { p in
-                                pageView(p, cols: cols, cell: cell, spacing: spacing)
-                                    .containerRelativeFrame(.horizontal)
-                                    .id(p.id)
+                    // Pages sit side by side; swipe to move between them, like the home screen. Each page measures
+                    // its own width, so the grid always fits the space it really has (beside the sidebar, say).
+                    TabView(selection: $page) {
+                        ForEach(pages) { p in
+                            GeometryReader { pg in
+                                pageView(p, width: pg.size.width, spacing: spacing)
                             }
+                            .tag(Optional(p.id))
                         }
-                        .scrollTargetLayout()
                     }
-                    .scrollTargetBehavior(.paging)
-                    .scrollPosition(id: $page)
-                    .scrollIndicators(.hidden)
-                    .scrollDisabled(pages.count < 2)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .onAppear { if page != currentPage { page = currentPage } }
                     .overlay(alignment: .bottom) { if pages.count > 1 { pageDots(pages) } }
                 }
             }
@@ -115,8 +109,11 @@ struct DashboardView: View {
     }
 
     /// One page of tiles, scrolling up and down on its own.
-    private func pageView(_ p: DashboardPage, cols: Int, cell: CGFloat, spacing: CGFloat) -> some View {
+    private func pageView(_ p: DashboardPage, width pageWidth: CGFloat, spacing: CGFloat) -> some View {
         let tiles = dashboard.tiles(onPage: p.id)
+        let width = max(100, pageWidth - spacing * 2)
+        let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
+        let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
         return ScrollView {
             VStack(alignment: .leading, spacing: spacing) {
                 if p.id == dashboard.pageList.first?.id { homeStatus }
@@ -177,26 +174,28 @@ struct DashboardView: View {
 
     /// The top row: greeting on the left, the time (and date) in the middle when there's room, buttons on the right.
     private func header(wide: Bool) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            if style.showGreeting {
-                TimelineView(.everyMinute) { ctx in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.household.members.first?.name))
-                            .font(.system(size: wall ? 34 : 28, weight: .bold))
-                            .lineLimit(1).minimumScaleFactor(0.6)
-                        let summary = engine.summaryLine(now: ctx.date)
-                        if !summary.isEmpty {
-                            Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        let clock = wide && style.headerClock != .off
+        return HStack(alignment: .top, spacing: 12) {
+            Group {
+                if style.showGreeting {
+                    TimelineView(.everyMinute) { ctx in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.household.members.first?.name))
+                                .font(.system(size: wall ? 34 : 28, weight: .bold))
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                            let summary = engine.summaryLine(now: ctx.date)
+                            if !summary.isEmpty {
+                                Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                            }
                         }
                     }
                 }
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The clock takes its own room in the middle, so the row is as tall as it needs and nothing sits under it.
+            if clock { headerClock.layoutPriority(1) }
             controls
-        }
-        .overlay(alignment: .top) {
-            // Centred on the whole row, not the gap, so it sits in the middle of the screen.
-            if wide && style.headerClock != .off { headerClock }
+                .frame(maxWidth: clock ? .infinity : nil, alignment: .trailing)
         }
     }
 
@@ -213,7 +212,7 @@ struct DashboardView: View {
                 }
             }
             .lineLimit(1)
-            .padding(.top, -6)
+            .fixedSize()
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)

@@ -87,12 +87,12 @@ struct TileCard<Content: View>: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
         let dark = style.tileTextIsDark(fill: fill)
-        ZStack(alignment: alignment) {
-            background(shape)
-            content
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-        .clipShape(shape)
+        // The card is always exactly the space the grid gives it; whatever's inside sits on top and is cut off at the
+        // edge rather than making the card bigger and spilling over the tiles next to it.
+        background(shape)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: alignment) { content }
+            .clipShape(shape)
         .environment(\.colorScheme, dark.map { $0 ? .light : .dark } ?? deviceScheme)
     }
 
