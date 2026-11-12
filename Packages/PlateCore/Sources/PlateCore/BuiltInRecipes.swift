@@ -18,7 +18,7 @@ public enum BuiltInRecipes {
 
     public static let all: [Recipe] = specs.enumerated().map { i, s in
         Recipe(id: id(i + 1), name: s.name, summary: s.summary, mealTypes: s.meals, servings: s.serves,
-               ingredients: s.ingredients.compactMap { IngredientParser.ingredient($0) }, steps: s.steps,
+               ingredients: UnitStandard.standardise(s.ingredients.compactMap { IngredientParser.ingredient($0) }), steps: s.steps,
                minutes: s.minutes, tags: [], source: RecipeSource(kind: .builtIn), mealPrepFriendly: s.prep,
                createdAt: Date(timeIntervalSince1970: 1_793_000_000))
     }
