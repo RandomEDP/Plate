@@ -174,6 +174,25 @@ public struct TrainBoard: Hashable, Sendable {
 }
 
 /// What one trains tile is set to show.
+/// Which trains a journey shows, by how quick they are.
+public enum TrainSpeed: String, CaseIterable, Hashable, Sendable, Identifiable {
+    case all, fast, stopping
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .all: return "Every train"
+        case .fast: return "Fast trains only"
+        case .stopping: return "Stopping trains only"
+        }
+    }
+
+    /// How it's saved in a tile's options under "fast" ("1" was the only value before stopping trains came along).
+    var saved: String? { self == .fast ? "1" : self == .stopping ? "slow" : nil }
+    init(saved: String?) { self = saved == "1" ? .fast : saved == "slow" ? .stopping : .all }
+}
+
+/// One journey on a trains tile: a station, where the trains go, whose trains and how quick.
 public struct TrainQuery: Hashable, Sendable {
     /// The station to leave from.
     public var from: String
@@ -181,19 +200,74 @@ public struct TrainQuery: Hashable, Sendable {
     public var to: String
     /// Only these operators' trains (two-letter codes). Empty for all.
     public var operators: Set<String>
-    /// Only the fast ones.
-    public var fastOnly: Bool
+    /// Fast trains, stopping trains or both.
+    public var speed: TrainSpeed
+    /// The name you gave it, such as "Romford fast". Empty to use the stations' names.
+    public var label: String
 
-    public init(from: String, to: String = "", operators: Set<String> = [], fastOnly: Bool = false) {
-        self.from = from.uppercased(); self.to = to.uppercased(); self.operators = Set(operators.map { $0.uppercased() })
-        self.fastOnly = fastOnly
+    public var fastOnly: Bool {
+        get { speed == .fast }
+        set { speed = newValue ? .fast : .all }
     }
 
-    /// Reads a tile's saved settings.
-    public init(options: [String: String]) {
-        self.init(from: options["from"] ?? "", to: options["to"] ?? "",
-                  operators: Set((options["ops"] ?? "").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }),
-                  fastOnly: options["fast"] == "1")
+    public init(from: String, to: String = "", operators: Set<String> = [], fastOnly: Bool = false,
+                speed: TrainSpeed? = nil, label: String = "") {
+        self.from = from.uppercased(); self.to = to.uppercased(); self.operators = Set(operators.map { $0.uppercased() })
+        self.speed = speed ?? (fastOnly ? .fast : .all)
+        self.label = label
+    }
+
+    /// A tile can show this many journeys, one under another.
+    public static let maxJourneys = 3
+
+    /// The option key for a journey: the first uses the plain names ("from"), the others a number ("from2", "from3").
+    public static func key(_ base: String, _ index: Int) -> String { index == 0 ? base : "\(base)\(index + 1)" }
+    static let keys = ["from", "to", "ops", "fast", "label"]
+
+    /// Reads one journey from a tile's saved settings.
+    public init(options: [String: String], index: Int = 0) {
+        func get(_ k: String) -> String? { options[Self.key(k, index)] }
+        self.init(from: get("from") ?? "", to: get("to") ?? "",
+                  operators: Set((get("ops") ?? "").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }),
+                  speed: TrainSpeed(saved: get("fast")), label: get("label") ?? "")
+    }
+
+    /// Saves this journey into a tile's settings.
+    public func write(into options: inout [String: String], index: Int = 0) {
+        func set(_ k: String, _ v: String?) { options[Self.key(k, index)] = (v?.isEmpty ?? true) ? nil : v }
+        set("from", from)
+        set("to", to)
+        set("ops", operators.sorted().joined(separator: ","))
+        set("fast", speed.saved)
+        set("label", label)
+    }
+
+    /// The journeys a tile has, in order. The first is always there (it may not have a station yet).
+    public static func journeys(_ options: [String: String]) -> [TrainQuery] {
+        var list = [TrainQuery(options: options, index: 0)]
+        for i in 1..<maxJourneys {
+            let q = TrainQuery(options: options, index: i)
+            if q.isReady { list.append(q) } else { break }
+        }
+        return list
+    }
+
+    /// Adds a journey after the others (a copy of the last one's station, to change), unless the tile is full.
+    public static func addJourney(to options: inout [String: String]) {
+        let list = journeys(options)
+        guard list.count < maxJourneys, let last = list.last, last.isReady else { return }
+        var copy = last
+        copy.label = ""
+        copy.write(into: &options, index: list.count)
+    }
+
+    /// Removes a journey; the ones after it move up. The first can only go if there's another to take its place.
+    public static func removeJourney(_ index: Int, from options: inout [String: String]) {
+        var list = journeys(options)
+        guard list.indices.contains(index), list.count > 1 else { return }
+        list.remove(at: index)
+        for i in 0..<maxJourneys { for k in keys { options[key(k, i)] = nil } }
+        for (i, q) in list.enumerated() { q.write(into: &options, index: i) }
     }
 
     public var isReady: Bool { from.count == 3 }
@@ -201,6 +275,17 @@ public struct TrainQuery: Hashable, Sendable {
     /// "Reading to London Paddington".
     public var title: String {
         to.isEmpty ? TrainStation.name(for: from) : "\(TrainStation.name(for: from)) to \(TrainStation.name(for: to))"
+    }
+
+    /// What to call it on the tile: your name for it, or the stations with "fast" or "stopping" if it's only those.
+    public var name: String {
+        let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !label.isEmpty { return label }
+        switch speed {
+        case .all: return title
+        case .fast: return "\(title) (fast)"
+        case .stopping: return "\(title) (stopping)"
+        }
     }
 }
 
@@ -303,7 +388,11 @@ public enum Trains {
                             stops: query.to.isEmpty ? nil : d.stops(before: query.to), journeyMinutes: journey)
         }
         if !query.operators.isEmpty { rows = rows.filter { query.operators.contains($0.departure.operatorCode) } }
-        if query.fastOnly { rows = rows.filter(\.isFast) }
+        switch query.speed {
+        case .all: break
+        case .fast: rows = rows.filter(\.isFast)
+        case .stopping: rows = rows.filter { !$0.isFast }
+        }
         return rows.filter { $0.departure.minutesUntil(nowMinutes: nowMinutes) >= -1 }
             .sorted { $0.departure.minutesUntil(nowMinutes: nowMinutes) < $1.departure.minutesUntil(nowMinutes: nowMinutes) }
     }

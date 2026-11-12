@@ -99,43 +99,81 @@ struct TrainTile: View {
     private var store: TrainStore { TrainStore.shared }
 
     var body: some View {
-        let query = TrainQuery(options: tile.options)
-        let entry = store.entry(query)
-        let count = tile.size == .large || tile.size == .tall ? 5 : tile.size == .wide ? 2 : 1
+        let all = TrainQuery.journeys(tile.options).filter(\.isReady)
+        // A small tile only has room for the first journey.
+        let journeys = tile.size == .small ? Array(all.prefix(1)) : all
+        let single = journeys.count <= 1
         TileCard {
             VStack(alignment: .leading, spacing: 7) {
-                TileHeader(title: tile.name(query.isReady ? query.title : "Trains"), symbol: "tram.fill")
-                if !query.isReady {
+                TileHeader(title: tile.name(single ? (journeys.first?.name ?? "Trains") : "Trains"), symbol: "tram.fill")
+                if journeys.isEmpty {
                     hint("Edit this tile to choose the station and which trains to show.")
                 } else if !store.hasKey {
                     hint("Edit this tile and add a free National Rail key to see live trains.")
-                } else if let board = entry.board {
-                    TimelineView(.periodic(from: .now, by: 20)) { ctx in
-                        let now = TrainStore.nowMinutes(ctx.date)
-                        let rows = Trains.rows(board, query: query, nowMinutes: now)
-                        VStack(alignment: .leading, spacing: 7) {
-                            if rows.isEmpty { hint("No trains in the next two hours.") }
-                            ForEach(rows.prefix(count)) { r in row(r, now: now, compact: tile.size == .small) }
+                } else if single, let q = journeys.first {
+                    section(q, count: rowsEach(1), compact: tile.size == .small)
+                } else if tile.size == .wide {
+                    // Side by side on a wide tile: just the times.
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(Array(journeys.enumerated()), id: \.offset) { _, q in
+                            VStack(alignment: .leading, spacing: 5) {
+                                heading(q)
+                                section(q, count: 2, compact: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    if let problem = entry.problem, tile.size != .small {
-                        Text(problem).font(.caption2).foregroundStyle(.orange).lineLimit(2)
-                    }
-                } else if let problem = entry.problem {
-                    hint(problem)
                 } else {
-                    ProgressView()
+                    ForEach(Array(journeys.enumerated()), id: \.offset) { i, q in
+                        if i > 0 { Divider().opacity(0.4) }
+                        heading(q)
+                        section(q, count: rowsEach(journeys.count), compact: false)
+                    }
                 }
                 Spacer(minLength: 0)
             }
             .padding(14)
         }
-        .task(id: TrainStore.id(query) + (store.hasKey ? "k" : "")) {
-            // Fresh every minute while the tile is on screen.
+        .task(id: journeys.map(TrainStore.id).joined(separator: "|") + (store.hasKey ? "k" : "")) {
+            // Fresh every minute while the tile is on screen. Journeys from the same station share one request.
             while !Task.isCancelled {
-                await store.refresh(query)
+                for q in journeys { await store.refresh(q) }
                 try? await Task.sleep(for: .seconds(60))
             }
+        }
+    }
+
+    private func rowsEach(_ journeys: Int) -> Int {
+        switch tile.size {
+        case .small: return 1
+        case .wide: return journeys == 1 ? 2 : 1
+        case .tall: return journeys == 1 ? 5 : journeys == 2 ? 3 : 2
+        case .large: return journeys == 1 ? 5 : journeys == 2 ? 3 : 2
+        }
+    }
+
+    private func heading(_ q: TrainQuery) -> some View {
+        Text(q.name).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+    }
+
+    @ViewBuilder private func section(_ query: TrainQuery, count: Int, compact: Bool) -> some View {
+        let entry = store.entry(query)
+        if let board = entry.board {
+            TimelineView(.periodic(from: .now, by: 20)) { ctx in
+                let now = TrainStore.nowMinutes(ctx.date)
+                let rows = Trains.rows(board, query: query, nowMinutes: now)
+                VStack(alignment: .leading, spacing: 7) {
+                    if rows.isEmpty { hint("No trains in the next two hours.") }
+                    ForEach(rows.prefix(count)) { r in row(r, now: now, compact: compact) }
+                }
+            }
+            if let problem = entry.problem, !compact {
+                Text(problem).font(.caption2).foregroundStyle(.orange).lineLimit(2)
+            }
+        } else if let problem = entry.problem {
+            hint(problem)
+        } else {
+            ProgressView()
         }
     }
 
@@ -189,7 +227,7 @@ struct TrainTile: View {
     }
 }
 
-/// The trains tile's settings: station, direction, which operators, fast only, and the key.
+/// The trains tile's settings: up to three journeys (station, direction, operators, fast or stopping) and the key.
 struct TrainSettings: View {
     @Binding var options: [String: String]
     @State private var key = ""
@@ -197,31 +235,16 @@ struct TrainSettings: View {
     private var store: TrainStore { TrainStore.shared }
 
     var body: some View {
-        let query = TrainQuery(options: options)
-        Section {
-            NavigationLink {
-                StationPicker(title: "Leaving from", allowAny: false, selection: Binding(get: { options["from"] ?? "" }, set: { options["from"] = $0 }))
-            } label: { labelled("From", query.from.isEmpty ? "Choose" : TrainStation.name(for: query.from)) }
-            NavigationLink {
-                StationPicker(title: "Trains calling at", allowAny: true, selection: Binding(get: { options["to"] ?? "" }, set: { options["to"] = $0.isEmpty ? nil : $0 }))
-            } label: { labelled("Only trains to", query.to.isEmpty ? "Anywhere" : TrainStation.name(for: query.to)) }
-        } header: { Text("Station") } footer: {
-            Text("For trains into London, choose the London station they end up at. Fast trains are then marked, with when each one arrives.")
+        let journeys = TrainQuery.journeys(options)
+        ForEach(journeys.indices, id: \.self) { i in
+            journey(i, count: journeys.count)
         }
-        Section {
-            let known = operators(query)
-            Button { options["ops"] = nil } label: { tick("Every operator", query.operators.isEmpty) }.foregroundStyle(.primary)
-            ForEach(known, id: \.code) { op in
-                Button {
-                    var set = query.operators
-                    if set.contains(op.code) { set.remove(op.code) } else { set.insert(op.code) }
-                    options["ops"] = set.isEmpty ? nil : set.sorted().joined(separator: ",")
-                } label: { tick(op.name, query.operators.contains(op.code)) }
-                .foregroundStyle(.primary)
+        if journeys.count < TrainQuery.maxJourneys, journeys.last?.isReady == true {
+            Section {
+                Button("Add another journey", systemImage: "plus.circle") { TrainQuery.addJourney(to: &options) }
+            } footer: {
+                Text("A tile can show up to three, one under another: say Romford fast trains, Romford stopping trains and the Elizabeth line from Gidea Park.")
             }
-            Toggle("Fast trains only", isOn: Binding(get: { options["fast"] == "1" }, set: { options["fast"] = $0 ? "1" : nil }))
-        } header: { Text("Which trains") } footer: {
-            Text("The list fills in with whoever runs trains from the station once it has loaded. Add the tile twice for two different sets, such as one line from one station and every fast train from another.")
         }
         Section {
             if savedKey {
@@ -236,20 +259,81 @@ struct TrainSettings: View {
         } header: { Text("National Rail key") } footer: {
             Text("Live times come from National Rail, which needs a free key: sign up at raildata.org.uk, subscribe to “Live Departure Board”, and paste its consumer key here. It's kept in this device's keychain and used for every trains tile.")
         }
-        .task(id: TrainStore.id(query)) { await store.refresh(query) }
+    }
+
+    private func query(_ i: Int) -> Binding<TrainQuery> {
+        Binding(get: { TrainQuery(options: options, index: i) }, set: { $0.write(into: &options, index: i) })
+    }
+
+    @ViewBuilder private func journey(_ i: Int, count: Int) -> some View {
+        let q = query(i)
+        Section {
+            TextField("Name, such as Romford fast", text: q.label)
+            NavigationLink {
+                StationPicker(title: "Leaving from", allowAny: false, selection: q.from)
+            } label: { labelled("From", q.wrappedValue.from.isEmpty ? "Choose" : TrainStation.name(for: q.wrappedValue.from)) }
+            NavigationLink {
+                StationPicker(title: "Trains calling at", allowAny: true, selection: q.to)
+            } label: { labelled("Only trains to", q.wrappedValue.to.isEmpty ? "Anywhere" : TrainStation.name(for: q.wrappedValue.to)) }
+            NavigationLink {
+                OperatorPicker(query: q)
+            } label: { labelled("Operators", operatorsText(q.wrappedValue)) }
+            Picker("Trains", selection: q.speed) {
+                ForEach(TrainSpeed.allCases) { Text($0.title).tag($0) }
+            }
+            if count > 1 {
+                Button("Remove this journey", role: .destructive) { TrainQuery.removeJourney(i, from: &options) }
+            }
+        } header: {
+            Text(count > 1 ? "Journey \(i + 1)" : "Journey")
+        } footer: {
+            if i == 0 {
+                Text("For trains into London, choose the London station they end up at. Fast trains are then marked, with when each one arrives. “Stopping trains only” leaves the fast ones out.")
+            }
+        }
+        .task(id: TrainStore.id(q.wrappedValue)) { await store.refresh(q.wrappedValue) }
+    }
+
+    private func operatorsText(_ q: TrainQuery) -> String {
+        if q.operators.isEmpty { return "Every operator" }
+        return q.operators.sorted().map { TrainSettings.operatorNames[$0] ?? $0 }.joined(separator: ", ")
+    }
+
+    static let operatorNames = ["XR": "Elizabeth line", "LE": "Greater Anglia", "GW": "Great Western Railway", "CC": "c2c", "LO": "London Overground"]
+
+    private func labelled(_ title: String, _ value: String) -> some View {
+        HStack { Text(title); Spacer(); Text(value).foregroundStyle(.secondary).lineLimit(1) }
+    }
+}
+
+/// Choose whose trains a journey shows. The list fills in from the station's board once it has loaded.
+struct OperatorPicker: View {
+    @Binding var query: TrainQuery
+    private var store: TrainStore { TrainStore.shared }
+
+    var body: some View {
+        List {
+            Button { query.operators = [] } label: { tick("Every operator", query.operators.isEmpty) }.foregroundStyle(.primary)
+            ForEach(operators(query), id: \.code) { op in
+                Button {
+                    if query.operators.contains(op.code) { query.operators.remove(op.code) } else { query.operators.insert(op.code) }
+                } label: { tick(op.name, query.operators.contains(op.code)) }
+                .foregroundStyle(.primary)
+            }
+        }
+        .navigationTitle("Operators")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await store.refresh(query) }
     }
 
     private func operators(_ q: TrainQuery) -> [(code: String, name: String)] {
         var list = store.entry(q).board.map(Trains.operators(on:)) ?? []
         // Operators already chosen stay in the list even when none of their trains are on the board right now.
-        let names = ["XR": "Elizabeth line", "LE": "Greater Anglia", "GW": "Great Western Railway", "CC": "c2c", "LO": "London Overground"]
-        for code in q.operators.sorted() where !list.contains(where: { $0.code == code }) { list.append((code, names[code] ?? code)) }
+        for code in q.operators.sorted() where !list.contains(where: { $0.code == code }) {
+            list.append((code, TrainSettings.operatorNames[code] ?? code))
+        }
         if list.isEmpty { list = [("XR", "Elizabeth line"), ("LE", "Greater Anglia")] }
         return list
-    }
-
-    private func labelled(_ title: String, _ value: String) -> some View {
-        HStack { Text(title); Spacer(); Text(value).foregroundStyle(.secondary) }
     }
 
     private func tick(_ title: String, _ on: Bool) -> some View {

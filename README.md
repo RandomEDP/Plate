@@ -30,11 +30,11 @@ shopping list that fills the gaps.
     own groups, scenes, cameras, climate sensors, low batteries and "all lights off"; the weather, a week's forecast and
     sunrise/sunset (Apple Weather); pinned Apple Music albums, playlists and stations; kitchen timers that speak when
     they finish; chores with whose turn it is; bin days; a guest Wi-Fi code to scan; countdowns, world clocks, the
-    calendar, photo frames, notes, headings; live train departures from any station (choose the direction and
-    operators; fast trains are marked; needs a free National Rail key from raildata.org.uk); today's meals, the shopping list, food to use soon, what to cook now.
+    calendar, photo frames, notes, headings; live train departures, up to three journeys per tile (choose the station, direction,
+    operators, and fast or stopping trains; fast trains are marked; needs a free National Rail key from raildata.org.uk); today's meals, the shopping list, food to use soon, what to cook now.
   - *Make it yours:* themes, accent and tile colours, a gradient, moving colours, a photo or the playing album behind
     the tiles, frosted or outlined tiles, corner shape, spacing, lettering and five packs of sound effects. Every tile
-    can have its own name, icon and colour. Several pages to swipe between.
+    can have its own name, icon and colour. Several pages to swipe between (add one with “New page” in edit mode). Folders open full screen.
   - *Do things:* routines (several steps from one tap, or by themselves at a time of day or at sunset), light shows for
     colour bulbs, a spoken briefing, a tile that runs one of Apple's Shortcuts, and a box to type commands such as
     "kitchen off, lamp 30%, pasta 10 min". `plate://command?text=…` does the same from Shortcuts or Siri.
