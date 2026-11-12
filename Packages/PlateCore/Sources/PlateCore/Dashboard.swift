@@ -77,6 +77,8 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     case battery
     /// Several accessories switched together. `options["ids"]` lists them.
     case group
+    /// Holds other tiles, like a folder on the home screen: tap to open it.
+    case folder
     /// Live departures from a station. `options` hold "from", "to", "ops" and "fast".
     case trains
     /// A title across the grid, to split it into sections.
@@ -101,7 +103,7 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles you can have any number of, each set up differently.
     public var canRepeat: Bool {
         switch self {
-        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains: return true
+        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder: return true
         default: return false
         }
     }
@@ -159,6 +161,8 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
     public var tint: RGB?
     /// Which page the tile is on. nil is the first page.
     public var pageId: UUID?
+    /// The folder tile this one is kept inside, if any.
+    public var folderId: UUID?
     /// Settings particular to the kind of tile (a countdown's date, a world clock's time zone…), kept as text.
     public var options: [String: String]
     public var updatedAt: Date
@@ -188,7 +192,7 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
         }
     }
 
-    enum CodingKeys: String, CodingKey { case id, kind, ref, title, subtitle, size, label, icon, tint, pageId, options, updatedAt }
+    enum CodingKeys: String, CodingKey { case id, kind, ref, title, subtitle, size, label, icon, tint, pageId, folderId, options, updatedAt }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -202,6 +206,7 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
         icon = c.optional(.icon)
         tint = c.optional(.tint)
         pageId = c.optional(.pageId)
+        folderId = c.optional(.folderId)
         options = c.value(.options, default: [:])
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
@@ -363,6 +368,10 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
     }
 
     public mutating func remove(_ id: UUID) {
+        // Removing a folder puts what was in it back on the folder's page rather than losing it.
+        if let folder = tiles.first(where: { $0.id == id }), folder.kind == .folder {
+            for i in tiles.indices where tiles[i].folderId == id { tiles[i].folderId = nil; tiles[i].pageId = folder.pageId }
+        }
         tiles.removeAll { $0.id == id }
         updatedAt = Date()
     }

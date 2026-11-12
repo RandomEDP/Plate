@@ -293,6 +293,15 @@ private struct EditBadge: View {
                         }
                     }
                 }
+                if tile.kind != .folder, !model.household.dashboard.folders.isEmpty {
+                    Menu("Move into folder") {
+                        ForEach(model.household.dashboard.folders) { f in
+                            Button(f.name("Folder"), systemImage: f.icon ?? "folder") {
+                                withAnimation { model.household.dashboard.moveTile(tile.id, toFolder: f.id) }
+                            }
+                        }
+                    }
+                }
                 if tile.kind.canRepeat {
                     Button("Duplicate", systemImage: "plus.square.on.square") {
                         var copy = tile

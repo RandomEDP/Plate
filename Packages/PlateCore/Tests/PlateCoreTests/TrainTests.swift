@@ -168,4 +168,54 @@ final class TrainTests: XCTestCase {
         XCTAssertTrue(d.add(DashboardTile(kind: .trains, title: "Trains")))
         XCTAssertTrue(d.add(DashboardTile(kind: .trains, title: "Trains")))
     }
+
+    // MARK: Folders
+
+    func testFolderHoldsTilesAndGivesThemBack() throws {
+        var d = HomeDashboard()
+        let folder = DashboardTile(kind: .folder, title: "Evening")
+        let scene = DashboardTile(kind: .scene, ref: "s1", title: "Relax")
+        let lamp = DashboardTile(kind: .accessory, ref: "a1", title: "Lamp")
+        let clock = DashboardTile(kind: .clock, title: "Clock")
+        for t in [folder, scene, lamp, clock] { d.add(t) }
+        d.moveTile(scene.id, toFolder: folder.id)
+        d.moveTile(lamp.id, toFolder: folder.id)
+        XCTAssertEqual(d.tiles(onPage: HomeDashboard.firstPageId).map(\.id), [folder.id, clock.id], "What's in a folder isn't on the page")
+        XCTAssertEqual(d.tiles(inFolder: folder.id).map(\.id), [scene.id, lamp.id])
+        XCTAssertEqual(d.folders.map(\.id), [folder.id])
+
+        // It survives saving and opening again.
+        let back = try JSONDecoder().decode(HomeDashboard.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(back.tiles(inFolder: folder.id).count, 2)
+
+        d.moveTile(lamp.id, toFolder: nil)
+        XCTAssertEqual(d.tiles(inFolder: folder.id).map(\.id), [scene.id])
+        XCTAssertTrue(d.tiles(onPage: HomeDashboard.firstPageId).contains { $0.id == lamp.id })
+
+        d.remove(folder.id)
+        XCTAssertTrue(d.tiles(onPage: HomeDashboard.firstPageId).contains { $0.id == scene.id }, "Removing a folder keeps what was in it")
+        XCTAssertNil(d.tiles.first { $0.id == scene.id }?.folderId)
+    }
+
+    func testFoldersDoNotNestAndFollowTheirPage() {
+        var d = HomeDashboard()
+        let a = DashboardTile(kind: .folder, title: "A"), b = DashboardTile(kind: .folder, title: "B")
+        let note = DashboardTile(kind: .note, title: "Note")
+        for t in [a, b, note] { d.add(t) }
+        d.moveTile(a.id, toFolder: b.id)
+        XCTAssertNil(d.tiles.first { $0.id == a.id }?.folderId, "A folder can't go in a folder")
+        d.moveTile(note.id, toFolder: note.id)
+        d.moveTile(note.id, toFolder: UUID())
+        XCTAssertNil(d.tiles.first { $0.id == note.id }?.folderId, "Nor into something that isn't a folder")
+
+        d.moveTile(note.id, toFolder: a.id)
+        let music = d.addPage(named: "Music")
+        d.moveTile(a.id, toPage: music)
+        XCTAssertEqual(d.tiles(onPage: music).map(\.id), [a.id])
+        XCTAssertEqual(d.tiles.first { $0.id == note.id }?.pageId, music, "The contents go with the folder")
+        // A tile whose folder has vanished (an old or hand-edited file) shows on its page again.
+        d.tiles.removeAll { $0.id == a.id }
+        XCTAssertTrue(d.tiles(onPage: music).contains { $0.id == note.id })
+        XCTAssertEqual(Set(TileKind.allCases.map(\.symbol)).contains(""), false)
+    }
 }

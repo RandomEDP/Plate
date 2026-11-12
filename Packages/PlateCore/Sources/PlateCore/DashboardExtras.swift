@@ -34,10 +34,39 @@ extension HomeDashboard {
         let list = pageList
         let known = Set(list.map(\.id))
         let isFirst = list.first?.id == id
+        let folders = folderIds
         return visibleTiles.filter { t in
+            // Tiles kept in a folder are shown inside it, not on the page.
+            if let f = t.folderId, folders.contains(f) { return false }
             if let p = t.pageId, known.contains(p) { return p == id }
             return isFirst
         }
+    }
+
+    private var folderIds: Set<UUID> { Set(tiles.filter { $0.kind == .folder }.map(\.id)) }
+
+    /// The folder tiles, for the "Move into folder" menu.
+    public var folders: [DashboardTile] { tiles.filter { $0.kind == .folder } }
+
+    /// What's inside a folder, in order.
+    public func tiles(inFolder id: UUID) -> [DashboardTile] {
+        visibleTiles.filter { $0.folderId == id }
+    }
+
+    /// Puts a tile in a folder, or takes it out (nil), when it goes back on the folder's page.
+    /// A folder can't go inside a folder.
+    public mutating func moveTile(_ id: UUID, toFolder folder: UUID?) {
+        guard let i = tiles.firstIndex(where: { $0.id == id }), tiles[i].kind != .folder, id != folder else { return }
+        if let folder {
+            guard let f = tiles.first(where: { $0.id == folder && $0.kind == .folder }) else { return }
+            tiles[i].folderId = folder
+            tiles[i].pageId = f.pageId
+        } else {
+            if let old = tiles[i].folderId, let f = tiles.first(where: { $0.id == old }) { tiles[i].pageId = f.pageId }
+            tiles[i].folderId = nil
+        }
+        tiles[i].updatedAt = Date()
+        updatedAt = Date()
     }
 
     /// Adds a page and returns its id. The first time, the existing tiles become the "Home" page.
@@ -68,6 +97,9 @@ extension HomeDashboard {
     public mutating func moveTile(_ id: UUID, toPage page: UUID) {
         guard let i = tiles.firstIndex(where: { $0.id == id }) else { return }
         tiles[i].pageId = page
+        tiles[i].folderId = nil
+        // A folder takes its contents with it.
+        if tiles[i].kind == .folder { for j in tiles.indices where tiles[j].folderId == id { tiles[j].pageId = page } }
         tiles[i].updatedAt = Date()
         updatedAt = Date()
     }
@@ -794,6 +826,53 @@ public enum Briefing {
         case 0: return ""
         case 1: return items[0]
         default: return items.dropLast().joined(separator: ", ") + " and " + items[items.count - 1]
+        }
+    }
+}
+
+extension TileKind {
+    /// A symbol that stands for this kind of tile, for the little pictures on a folder.
+    public var symbol: String {
+        switch self {
+        case .accessory: return "lightbulb.fill"
+        case .scene: return "sparkles"
+        case .room: return "lightbulb.2.fill"
+        case .musicAlbum: return "music.note"
+        case .playlist: return "music.note.list"
+        case .clock, .worldClock: return "clock.fill"
+        case .todaysMeals: return "fork.knife"
+        case .shoppingList: return "cart.fill"
+        case .useSoon: return "clock.badge.exclamationmark"
+        case .note: return "note.text"
+        case .nowPlaying: return "play.circle.fill"
+        case .weather: return "cloud.sun.fill"
+        case .timer: return "timer"
+        case .countdown: return "calendar.badge.clock"
+        case .calendar: return "calendar"
+        case .chores: return "checklist"
+        case .bins: return "trash.fill"
+        case .wifi: return "wifi"
+        case .camera: return "video.fill"
+        case .climate: return "thermometer.medium"
+        case .allOff: return "lightbulb.slash.fill"
+        case .photoFrame: return "photo.fill"
+        case .forecast: return "calendar.day.timeline.left"
+        case .sun: return "sunset.fill"
+        case .macros: return "flame.fill"
+        case .cookNow: return "frying.pan.fill"
+        case .shortcut: return "link"
+        case .routine: return "wand.and.stars"
+        case .lightShow: return "party.popper.fill"
+        case .activity: return "clock.arrow.circlepath"
+        case .command: return "text.cursor"
+        case .briefing: return "speaker.wave.2.fill"
+        case .battery: return "battery.25"
+        case .group: return "square.grid.2x2.fill"
+        case .folder: return "folder.fill"
+        case .trains: return "tram.fill"
+        case .heading: return "textformat.size"
+        case .spacer: return "square.dashed"
+        case .unknown: return "questionmark"
         }
     }
 }
