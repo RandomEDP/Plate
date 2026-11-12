@@ -34,7 +34,7 @@ shopping list that fills the gaps.
     operators, and fast or stopping trains; fast trains are marked; needs a free National Rail key from raildata.org.uk); today's meals, the shopping list, food to use soon, what to cook now.
   - *Make it yours:* themes, accent and tile colours, a gradient, moving colours, a photo or the playing album behind
     the tiles, frosted or outlined tiles, corner shape, spacing, lettering and five packs of sound effects. Every tile
-    can have its own name, icon and colour. Several pages to swipe between (add one with “New page” in edit mode). Folders open full screen. In edit mode, drag a tile onto any empty square (or onto another tile to swap them); empty squares stay empty, and “Tidy this page” (long-press the page name) closes the gaps.
+    can have its own name, icon and colour. Several pages to swipe between (add one with “New page” in edit mode). Folders open full screen. In edit mode, drag a tile onto any empty square (or onto another tile to swap them); empty squares stay empty, and “Tidy this page” (long-press the page name) closes the gaps. A rooms page (New page, then “Rooms side by side”, or long-press a page name and “Show as rooms”) splits the screen into one column per Home app room, each with an all on/off switch, the room’s scenes and every accessory in it.
   - *Do things:* routines (several steps from one tap, or by themselves at a time of day or at sunset), light shows for
     colour bulbs, a spoken briefing, a tile that runs one of Apple's Shortcuts, and a box to type commands such as
     "kitchen off, lamp 30%, pasta 10 min". `plate://command?text=…` does the same from Shortcuts or Siri.

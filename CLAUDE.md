@@ -72,7 +72,7 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   timing, night dimming, the slideshow order and `IdleArtwork.choose` (album cover while music plays, else the photo
   album, else a clock); all tested in `DashboardTests.swift`. Saved as `household.dashboard`. The app side is
   `App/Home/`: `HomeStore` (HomeKit), `MusicStore` and `PhotoStore` (MusicKit, PhotoKit), `DashboardView` (grid, edit
-  mode, pages), `TileViews`/`MoreTiles` (one view per `TileKind`, all drawn on `TileCard` from `Style.swift` so any
+  mode, pages), `RoomsPage.swift` (a page with `layout == .rooms`: one column per HomeKit room; choice and order in `RoomsPage`), `TileViews`/`MoreTiles` (one view per `TileKind`, all drawn on `TileCard` from `Style.swift` so any
   theme stays readable), `StyleEditors` (look, one tile, one accessory), `SetupEditors` (settings, pages, chores, bin
   days, routines, layout export), `Engine.swift` (`DashboardEngine`: timers, routines and schedules, typed commands,
   briefing; made once in `PlateApp`), `AddTileView`, `WallModeView` (full screen, screen kept on, idle artwork).
