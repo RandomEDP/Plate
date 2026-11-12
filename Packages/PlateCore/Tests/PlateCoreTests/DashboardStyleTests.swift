@@ -16,7 +16,7 @@ final class DashboardStyleTests: XCTestCase {
 
     func testColourSavesAsHexText() throws {
         let data = try JSONEncoder().encode(["c": RGB(hex: "#102030")!])
-        XCTAssertEqual(String(data: data, encoding: .utf8), #"{"c":"#102030"}"#)
+        XCTAssertEqual(String(data: data, encoding: .utf8), ##"{"c":"#102030"}"##)
         XCTAssertEqual(try JSONDecoder().decode([String: RGB].self, from: data)["c"]?.hex, "#102030")
     }
 
@@ -68,7 +68,7 @@ final class DashboardStyleTests: XCTestCase {
         s.tileColor = RGB(hex: "#123456")
         XCTAssertEqual(try JSONDecoder().decode(DashboardStyle.self, from: JSONEncoder().encode(s)), s)
 
-        let json = #"{"accent":"#FF0000","background":"hologram","tileLook":"glass","cornerRadius":"round","sounds":{"pack":"kazoo","volume":0.2}}"#
+        let json = ##"{"accent":"#FF0000","background":"hologram","tileLook":"glass","cornerRadius":"round","sounds":{"pack":"kazoo","volume":0.2}}"##
         let odd = try JSONDecoder().decode(DashboardStyle.self, from: Data(json.utf8))
         XCTAssertEqual(odd.accent.hex, "#FF0000")
         XCTAssertEqual(odd.background, .system, "A background this version doesn't know falls back to plain")

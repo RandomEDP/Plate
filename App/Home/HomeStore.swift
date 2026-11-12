@@ -21,9 +21,13 @@ final class HomeStore: NSObject {
 
     var status: Status = .notStarted
     /// Bumped whenever HomeKit reports a change, so tiles redraw with the new state.
-    private(set) var revision = 0
+    var revision = 0
     /// The last thing that went wrong, shown briefly on the dashboard.
     var problem: String?
+    /// Called with a line and an icon whenever something is switched, for the activity list.
+    @ObservationIgnored var onActivity: ((String, String) -> Void)?
+    /// Called when any motion sensor in the home sees movement (used to wake the wall display).
+    @ObservationIgnored var onMotion: (() -> Void)?
 
     private var manager: HMHomeManager?
     private var watched = Set<ObjectIdentifier>()
@@ -195,7 +199,7 @@ final class HomeStore: NSObject {
         return switchables(in: room).contains { ($0.value as? NSNumber)?.boolValue == true }
     }
 
-    private func switchables(in room: HMRoom) -> [HMCharacteristic] {
+    func switchables(in room: HMRoom) -> [HMCharacteristic] {
         room.accessories.filter { [.light, .outlet, .switchControl].contains(Self.category(of: $0)) }
             .compactMap { Self.characteristic(HMCharacteristicTypePowerState, in: $0) }
     }
@@ -221,6 +225,14 @@ final class HomeStore: NSObject {
                 guard let c = Self.characteristic(HMCharacteristicTypePowerState, in: a) else { return }
                 try await write(c, !on)
             }
+            Feedback.shared.play(on ? .off : .on)
+            let verb: String
+            switch Self.category(of: a) {
+            case .lock: verb = on ? "unlocked" : "locked"
+            case .blinds: verb = on ? "closed" : "opened"
+            default: verb = on ? "off" : "on"
+            }
+            onActivity?("\(a.name) \(verb)", s.symbol)
         } catch {
             report(error, doing: "switch \(a.name)", reachable: a.isReachable)
         }
@@ -251,6 +263,8 @@ final class HomeStore: NSObject {
     /// Switches everything in a room off if anything is on, otherwise on.
     func toggle(_ room: HMRoom) async {
         let target = !isOn(room)
+        Feedback.shared.play(target ? .on : .off)
+        onActivity?("\(room.name) \(target ? "on" : "off")", "lightbulb.2.fill")
         for c in switchables(in: room) {
             do { try await write(c, target) } catch {
                 report(error, doing: "switch \(c.service?.accessory?.name ?? room.name)", reachable: c.service?.accessory?.isReachable ?? true)
@@ -260,17 +274,23 @@ final class HomeStore: NSObject {
 
     func run(_ scene: HMActionSet) async {
         guard let home else { return }
-        do { try await home.executeActionSet(scene) } catch {
+        do {
+            try await home.executeActionSet(scene)
+            Feedback.shared.play(.scene)
+            onActivity?("Ran \(scene.name)", "sparkles")
+            revision += 1
+        } catch {
             report(error, doing: "run \(scene.name)", reachable: true)
         }
     }
 
-    private func write(_ c: HMCharacteristic, _ value: Any) async throws {
+    func write(_ c: HMCharacteristic, _ value: Any) async throws {
         try await c.writeValue(value)
         revision += 1
     }
 
-    private func report(_ error: Error, doing what: String, reachable: Bool) {
+    func report(_ error: Error, doing what: String, reachable: Bool) {
+        Feedback.shared.play(.error)
         problem = reachable
             ? "Couldn't \(what): \(error.localizedDescription)"
             : "Couldn't \(what) because it isn't responding. Check it has power and is on Wi-Fi, then try again."
@@ -288,7 +308,9 @@ final class HomeStore: NSObject {
                          HMCharacteristicTypeCurrentLockMechanismState, HMCharacteristicTypeCurrentTemperature,
                          HMCharacteristicTypeTargetTemperature, HMCharacteristicTypeCurrentPosition,
                          HMCharacteristicTypeCurrentRelativeHumidity, HMCharacteristicTypeMotionDetected,
-                         HMCharacteristicTypeContactState]
+                         HMCharacteristicTypeContactState, HMCharacteristicTypeHue, HMCharacteristicTypeSaturation,
+                         HMCharacteristicTypeColorTemperature, HMCharacteristicTypeTargetPosition,
+                         HMCharacteristicTypeStatusLowBattery, HMCharacteristicTypeBatteryLevel]
             for s in a.services {
                 for c in s.characteristics where types.contains(c.characteristicType) {
                     let key = ObjectIdentifier(c)
@@ -356,7 +378,12 @@ extension HomeStore: HMHomeManagerDelegate, HMHomeDelegate, HMAccessoryDelegate 
     }
 
     nonisolated func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueFor characteristic: HMCharacteristic) {
-        Task { @MainActor in self.revision += 1 }
+        let moved = characteristic.characteristicType == HMCharacteristicTypeMotionDetected
+            && (characteristic.value as? NSNumber)?.boolValue == true
+        Task { @MainActor in
+            self.revision += 1
+            if moved { self.onMotion?() }
+        }
     }
 
     nonisolated func accessoryDidUpdateReachability(_ accessory: HMAccessory) {
