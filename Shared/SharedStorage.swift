@@ -18,6 +18,28 @@ enum SharedStorage {
     static var inboxURL: URL { folder.appendingPathComponent("inbox.json") }
 }
 
+/// Videos shared to Plate from the share sheet, waiting for the app to read them (the share sheet hasn't the memory or
+/// time to listen to a whole video itself).
+enum VideoInbox {
+    static var folder: URL { SharedStorage.folder.appendingPathComponent("Videos", isDirectory: true) }
+
+    /// Copies a shared video in, keeping its file type.
+    static func add(_ file: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let ext = file.pathExtension.isEmpty ? "mov" : file.pathExtension
+        try FileManager.default.copyItem(at: file, to: folder.appendingPathComponent(UUID().uuidString + "." + ext))
+    }
+
+    /// Videos waiting, oldest first.
+    static func pending() -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        func date(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast }
+        return files.sorted { date($0) < date($1) }
+    }
+
+    static func remove(_ file: URL) { try? FileManager.default.removeItem(at: file) }
+}
+
 /// A recipe saved from the share sheet, waiting for the app to pick it up.
 struct PendingImport: Codable, Identifiable {
     var id = UUID()

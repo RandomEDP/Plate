@@ -53,6 +53,7 @@ targets:
         NSLocationWhenInUseUsageDescription: Plate uses your location once, roughly, to show the weather on its home dashboard.
         NSCalendarsFullAccessUsageDescription: Plate shows your next few calendar events on its home dashboard.
         NSPhotoLibraryUsageDescription: Plate shows a photo album you choose on the wall dashboard when nobody's using it.
+        NSSpeechRecognitionUsageDescription: Plate listens to recipe videos you give it, to write down the ingredients and method.
         CFBundleURLTypes:
           - CFBundleURLName: com.randomedp.plate
             CFBundleURLSchemes: [plate]
@@ -87,6 +88,7 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsWebURLWithMaxCount: 1
               NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsMovieWithMaxCount: 1
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.randomedp.plate.share
