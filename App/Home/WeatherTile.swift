@@ -14,6 +14,10 @@ final class WeatherStore {
         var symbol: String
         var condition: String
         var hours: [HourForecast]
+        var days: [DayForecast] = []
+        var sunrise: Date?
+        var sunset: Date?
+        var tomorrowSunrise: Date?
         var fetched: Date
     }
 
@@ -49,7 +53,8 @@ final class WeatherStore {
         defer { loading = false }
         guard let location = await location() else { return }
         do {
-            let (current, hourly) = try await WeatherService.shared.weather(for: location, including: .current, .hourly)
+            let (current, hourly, daily) = try await WeatherService.shared.weather(for: location, including: .current, .hourly, .daily)
+            let days = Array(daily.forecast.prefix(7))
             now = Now(
                 temperature: current.temperature.converted(to: .celsius).value,
                 symbol: current.symbolName,
@@ -58,6 +63,13 @@ final class WeatherStore {
                     HourForecast(date: $0.date, temperature: $0.temperature.converted(to: .celsius).value,
                                  precipitationChance: $0.precipitationChance)
                 },
+                days: days.map {
+                    DayForecast(date: $0.date, high: $0.highTemperature.converted(to: .celsius).value,
+                                low: $0.lowTemperature.converted(to: .celsius).value, symbol: $0.symbolName,
+                                precipitationChance: $0.precipitationChance)
+                },
+                sunrise: days.first?.sun.sunrise, sunset: days.first?.sun.sunset,
+                tomorrowSunrise: days.dropFirst().first?.sun.sunrise,
                 fetched: Date())
             problem = nil
             if attribution == nil { attribution = try? await WeatherService.shared.attribution }

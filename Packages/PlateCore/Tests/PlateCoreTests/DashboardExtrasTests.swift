@@ -340,6 +340,30 @@ final class DashboardExtrasTests: XCTestCase {
         XCTAssertEqual(LightColor.mired(kelvin: 2000, min: 153, max: 454), 454)
     }
 
+    func testNextSunEvent() {
+        let rise = day(2026, 11, 12, 7, 15), set = day(2026, 11, 12, 16, 12), next = day(2026, 11, 13, 7, 17)
+        XCTAssertEqual(WeatherText.nextSun(sunrise: rise, sunset: set, tomorrowSunrise: next, now: day(2026, 11, 12, 6))?.title, "Sunrise")
+        XCTAssertEqual(WeatherText.nextSun(sunrise: rise, sunset: set, tomorrowSunrise: next, now: day(2026, 11, 12, 12))?.at, set)
+        XCTAssertEqual(WeatherText.nextSun(sunrise: rise, sunset: set, tomorrowSunrise: next, now: day(2026, 11, 12, 20))?.at, next)
+        XCTAssertNil(WeatherText.nextSun(sunrise: nil, sunset: nil, tomorrowSunrise: nil, now: day(2026, 11, 12)))
+    }
+
+    func testClockHands() {
+        let three = WeatherText.clockAngles(hour: 15, minute: 0)
+        XCTAssertEqual(three.hour, 90); XCTAssertEqual(three.minute, 0)
+        let halfSix = WeatherText.clockAngles(hour: 6, minute: 30, second: 30)
+        XCTAssertEqual(halfSix.hour, 195.25, accuracy: 0.001)
+        XCTAssertEqual(halfSix.minute, 183)
+        XCTAssertEqual(halfSix.second, 180)
+    }
+
+    func testIdleExtrasDefaultForOldFiles() throws {
+        let s = try JSONDecoder().decode(IdleSettings.self, from: Data(#"{"minutes":5}"#.utf8))
+        XCTAssertEqual(s.clockFace, .digital)
+        XCTAssertTrue(s.showWeather)
+        XCTAssertFalse(s.wakeOnMotion)
+    }
+
     // MARK: Odds and ends
 
     func testWiFiCode() {

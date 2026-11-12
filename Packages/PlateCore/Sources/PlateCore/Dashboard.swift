@@ -218,6 +218,19 @@ public enum IdleArtwork: Hashable, Sendable {
     }
 }
 
+public enum ClockFace: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
+    case digital, analogue, words, flip
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .digital: return "Digital"
+        case .analogue: return "Analogue"
+        case .words: return "In words"
+        case .flip: return "Flip clock"
+        }
+    }
+}
+
 /// How the wall iPad behaves when nobody is using it.
 public struct IdleSettings: Codable, Hashable, Sendable {
     /// Minutes without a touch before the artwork shows. 0 means never.
@@ -235,17 +248,32 @@ public struct IdleSettings: Codable, Hashable, Sendable {
     public var nightEnd: Int
     /// How dark the screen gets at night, 0 (not at all) to 1 (black).
     public var nightDarkness: Double
+    /// How the time is shown on the artwork screen.
+    public var clockFace: ClockFace
+    /// Show the weather next to the time.
+    public var showWeather: Bool
+    /// Slowly zoom and drift the pictures, and nudge the clock around so nothing marks the screen.
+    public var drift: Bool
+    /// Come back to the dashboard when a HomeKit motion sensor sees someone.
+    public var wakeOnMotion: Bool
+    /// What to show when there's no photo album and no music: moving colours rather than a plain backdrop.
+    public var aurora: Bool
 
     public init(minutes: Int = 3, photoAlbumId: String? = nil, photoAlbumTitle: String? = nil,
                 secondsPerSlide: Int = 20, showClock: Bool = true, nightDim: Bool = true,
-                nightStart: Int = 23 * 60, nightEnd: Int = 7 * 60, nightDarkness: Double = 0.8) {
+                nightStart: Int = 23 * 60, nightEnd: Int = 7 * 60, nightDarkness: Double = 0.8,
+                clockFace: ClockFace = .digital, showWeather: Bool = true, drift: Bool = true, wakeOnMotion: Bool = false,
+                aurora: Bool = true) {
         self.minutes = minutes; self.photoAlbumId = photoAlbumId; self.photoAlbumTitle = photoAlbumTitle
         self.secondsPerSlide = secondsPerSlide; self.showClock = showClock; self.nightDim = nightDim
         self.nightStart = nightStart; self.nightEnd = nightEnd; self.nightDarkness = nightDarkness
+        self.clockFace = clockFace; self.showWeather = showWeather; self.drift = drift; self.wakeOnMotion = wakeOnMotion
+        self.aurora = aurora
     }
 
     enum CodingKeys: String, CodingKey {
-        case minutes, photoAlbumId, photoAlbumTitle, secondsPerSlide, showClock, nightDim, nightStart, nightEnd, nightDarkness
+        case minutes, photoAlbumId, photoAlbumTitle, secondsPerSlide, showClock, nightDim, nightStart, nightEnd, nightDarkness,
+             clockFace, showWeather, drift, wakeOnMotion, aurora
     }
 
     public init(from decoder: Decoder) throws {
@@ -260,6 +288,11 @@ public struct IdleSettings: Codable, Hashable, Sendable {
         nightStart = try c.decodeIfPresent(Int.self, forKey: .nightStart) ?? d.nightStart
         nightEnd = try c.decodeIfPresent(Int.self, forKey: .nightEnd) ?? d.nightEnd
         nightDarkness = try c.decodeIfPresent(Double.self, forKey: .nightDarkness) ?? d.nightDarkness
+        clockFace = c.value(.clockFace, default: d.clockFace)
+        showWeather = c.value(.showWeather, default: d.showWeather)
+        drift = c.value(.drift, default: d.drift)
+        wakeOnMotion = c.value(.wakeOnMotion, default: d.wakeOnMotion)
+        aurora = c.value(.aurora, default: d.aurora)
     }
 }
 
@@ -608,5 +641,32 @@ public enum WeatherText {
         let rest = hours.filter { calendar.isDate($0.date, inSameDayAs: now) && $0.date >= (calendar.dateInterval(of: .hour, for: now)?.start ?? now) }
         guard let hi = rest.map(\.temperature).max(), let lo = rest.map(\.temperature).min() else { return nil }
         return (hi, lo)
+    }
+}
+
+/// One day of forecast for the forecast tile. The app fills these in from WeatherKit.
+public struct DayForecast: Hashable, Sendable {
+    public var date: Date
+    public var high: Double
+    public var low: Double
+    public var symbol: String
+    public var precipitationChance: Double
+    public init(date: Date, high: Double, low: Double, symbol: String, precipitationChance: Double) {
+        self.date = date; self.high = high; self.low = low; self.symbol = symbol; self.precipitationChance = precipitationChance
+    }
+}
+
+extension WeatherText {
+    /// "Sunset in 2 hr 5 min" / "Sunrise in 40 min": whichever comes next, for the sun tile. nil when neither is known.
+    public static func nextSun(sunrise: Date?, sunset: Date?, tomorrowSunrise: Date?, now: Date) -> (title: String, at: Date)? {
+        let options: [(String, Date?)] = [("Sunrise", sunrise), ("Sunset", sunset), ("Sunrise", tomorrowSunrise)]
+        for (name, date) in options { if let date, date > now { return (name, date) } }
+        return nil
+    }
+
+    /// The hands of an analogue clock, in degrees clockwise from 12.
+    public static func clockAngles(hour: Int, minute: Int, second: Int = 0) -> (hour: Double, minute: Double, second: Double) {
+        let m = Double(minute) + Double(second) / 60
+        return ((Double(hour % 12) + m / 60) * 30, m * 6, Double(second) * 6)
     }
 }
