@@ -111,6 +111,66 @@ final class TrainTests: XCTestCase {
         XCTAssertFalse(all.contains(where: \.isFast), "Nothing is fast without somewhere to be fast to")
     }
 
+    func testStoppingTrainsOnly() throws {
+        let b = try board()
+        let stopping = Trains.rows(b, query: TrainQuery(from: "RDG", to: "PAD", speed: .stopping), nowMinutes: 600)
+        XCTAssertEqual(stopping.map(\.id), ["a1"])
+        XCTAssertFalse(stopping.contains(where: \.isFast))
+    }
+
+    func testSpeedIsSavedAndReadBack() {
+        for speed in TrainSpeed.allCases {
+            var options: [String: String] = [:]
+            TrainQuery(from: "RMF", to: "LST", speed: speed).write(into: &options)
+            XCTAssertEqual(TrainQuery(options: options).speed, speed)
+        }
+        XCTAssertEqual(TrainQuery(options: ["from": "RMF", "fast": "1"]).speed, .fast, "Tiles saved before stopping trains still read")
+        XCTAssertEqual(TrainQuery(options: ["from": "RMF"]).speed, .all)
+    }
+
+    /// Ethan's tile: Romford fast, Romford stopping and Gidea Park on the Elizabeth line, all into Liverpool Street.
+    func testThreeJourneysOnOneTile() {
+        var options: [String: String] = [:]
+        TrainQuery(from: "RMF", to: "LST", speed: .fast, label: "Romford fast").write(into: &options, index: 0)
+        TrainQuery.addJourney(to: &options)
+        var second = TrainQuery(options: options, index: 1)
+        XCTAssertEqual(second.from, "RMF", "A new journey starts from the last one's station")
+        XCTAssertEqual(second.label, "")
+        second.speed = .stopping
+        second.write(into: &options, index: 1)
+        TrainQuery.addJourney(to: &options)
+        TrainQuery(from: "GDP", to: "LST", operators: ["XR"]).write(into: &options, index: 2)
+
+        let list = TrainQuery.journeys(options)
+        XCTAssertEqual(list.map(\.from), ["RMF", "RMF", "GDP"])
+        XCTAssertEqual(list.map(\.speed), [.fast, .stopping, .all])
+        XCTAssertEqual(list[0].name, "Romford fast")
+        XCTAssertEqual(list[1].name, "Romford to London Liverpool Street (stopping)")
+        XCTAssertEqual(list[2].operators, ["XR"])
+        XCTAssertEqual(options["from3"], "GDP")
+
+        TrainQuery.addJourney(to: &options)
+        XCTAssertEqual(TrainQuery.journeys(options).count, 3, "Three is the most")
+
+        TrainQuery.removeJourney(0, from: &options)
+        let after = TrainQuery.journeys(options)
+        XCTAssertEqual(after.map(\.from), ["RMF", "GDP"], "The others move up")
+        XCTAssertEqual(after.map(\.speed), [.stopping, .all])
+        XCTAssertNil(options["from3"])
+        XCTAssertNil(options["label"], "The removed journey's name goes with it")
+
+        TrainQuery.removeJourney(0, from: &options)
+        TrainQuery.removeJourney(0, from: &options)
+        XCTAssertEqual(TrainQuery.journeys(options).map(\.from), ["GDP"], "The last journey stays")
+    }
+
+    func testOldSingleJourneyTilesStillWork() {
+        let list = TrainQuery.journeys(["from": "GDP", "to": "LST", "ops": "XR"])
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0].operators, ["XR"])
+        XCTAssertEqual(TrainQuery.journeys([:]).count, 1, "A new tile has one empty journey to fill in")
+    }
+
     func testTrainsThatHaveGoneDropOffAndOrderFollowsRealDepartures() throws {
         let b = try board()
         XCTAssertEqual(Trains.rows(b, query: TrainQuery(from: "RDG", to: "PAD"), nowMinutes: 10 * 60 + 4).map(\.id), ["b2", "c3"])

@@ -41,11 +41,12 @@ struct FolderTile: View {
         }
         .buttonStyle(.plain)
         .disabled(editing)
-        .sheet(isPresented: $open) { FolderView(folderId: tile.id) }
+        .fullScreenCover(isPresented: $open) { FolderView(folderId: tile.id) }
     }
 }
 
-/// An open folder: the real tiles, working as they do on the dashboard.
+/// An open folder, full screen like a folder on the home screen: the dashboard blurred behind, the folder's name
+/// across the top and its real tiles, working as they do on the dashboard.
 struct FolderView: View {
     let folderId: UUID
     @Environment(AppModel.self) private var model
@@ -62,11 +63,15 @@ struct FolderView: View {
         let spacing = CGFloat(style.spacing)
         let folder = dashboard.tiles.first { $0.id == folderId }
         let tiles = dashboard.tiles(inFolder: folderId)
-        NavigationStack {
-            GeometryReader { geo in
-                let width = max(100, geo.size.width - spacing * 2)
-                let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
-                let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
+        GeometryReader { geo in
+            // Leave a margin on big screens so it reads as a folder, not a new page.
+            let margin = max(spacing, geo.size.width > 700 ? geo.size.width * 0.06 : spacing)
+            let width = max(100, geo.size.width - margin * 2)
+            let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
+            let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
+            VStack(spacing: 0) {
+                topBar(folder?.name("Folder") ?? "Folder")
+                    .padding(.horizontal, margin).padding(.top, 12).padding(.bottom, spacing)
                 ScrollView {
                     VStack(alignment: .leading, spacing: spacing) {
                         if tiles.isEmpty {
@@ -83,29 +88,50 @@ struct FolderView: View {
                         }
                         .animation(.spring(duration: 0.3), value: tiles)
                     }
-                    .padding(spacing)
+                    .padding(.horizontal, margin)
+                    .padding(.bottom, spacing * 2)
                 }
                 .scrollIndicators(.hidden)
             }
-            .background(DashboardBackground(style: style))
-            .navigationTitle(folder?.name("Folder") ?? "Folder")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button(editing ? "Finished" : "Edit") { withAnimation { editing.toggle() } } }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showAdd = true } label: { Label("Add tile", systemImage: "plus") }
-                    Button("Done") { dismiss() }.fontWeight(.semibold)
-                }
-            }
-            .sheet(isPresented: $showAdd) { AddTileView(page: folder?.pageId, folder: folderId) }
-            .sheet(item: $editTile) { TileEditorView(tile: $0) }
         }
+        .background {
+            ZStack {
+                DashboardBackground(style: style)
+                Rectangle().fill(.ultraThinMaterial)
+            }
+            .ignoresSafeArea()
+        }
+        // Swipe down to close, as with a sheet.
+        .gesture(DragGesture(minimumDistance: 40).onEnded { v in
+            if !editing, v.translation.height > 120, abs(v.translation.width) < v.translation.height { dismiss() }
+        })
+        .sheet(isPresented: $showAdd) { AddTileView(page: folder?.pageId, folder: folderId) }
+        .sheet(item: $editTile) { TileEditorView(tile: $0) }
         .fontDesign(style.font.design)
         .tint(style.accent.color)
         .environment(\.dashStyle, style)
         .environment(\.colorScheme, style.scheme ?? deviceScheme)
-        .presentationDetents([.medium, .large])
         .onAppear { home.start() }
+    }
+
+    private func topBar(_ title: String) -> some View {
+        ZStack {
+            Text(title).font(.largeTitle.bold()).lineLimit(1).minimumScaleFactor(0.6)
+                .padding(.horizontal, 130)
+            HStack {
+                Button(editing ? "Finished" : "Edit") { withAnimation { editing.toggle() } }
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                Spacer()
+                HStack(spacing: 18) {
+                    Button { showAdd = true } label: { Label("Add tile", systemImage: "plus") }.labelStyle(.iconOnly)
+                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                }
+                .padding(.horizontal, 18).padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+            .font(.title3)
+        }
     }
 
     private func badge(_ t: DashboardTile) -> some View {

@@ -26,28 +26,30 @@ struct DashboardView: View {
     @State private var showStyle = false
     @State private var editTile: DashboardTile?
     @State private var dragging: UUID?
-    @State private var page = HomeDashboard.firstPageId
+    @State private var page: UUID? = HomeDashboard.firstPageId
+    @State private var renaming: DashboardPage?
+    @State private var newName = ""
 
     private var dashboard: HomeDashboard { model.household.dashboard }
     private var style: DashboardStyle { dashboard.style.clamped }
 
     private var currentPage: UUID {
         let pages = dashboard.pageList
-        return pages.contains { $0.id == page } ? page : (pages.first?.id ?? HomeDashboard.firstPageId)
+        return pages.contains { $0.id == page } ? (page ?? HomeDashboard.firstPageId) : (pages.first?.id ?? HomeDashboard.firstPageId)
     }
 
     var body: some View {
         let style = self.style
         let spacing = CGFloat(style.spacing)
-        let tiles = dashboard.tiles(onPage: currentPage)
+        let pages = dashboard.pageList
         GeometryReader { geo in
             let width = max(100, geo.size.width - spacing * 2)
             let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
             let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
-            ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: spacing) {
                     header
-                    if dashboard.pageList.count > 1 { pageBar }
+                    if pages.count > 1 || editing { pageBar }
                     if let problem = home.problem ?? music.problem {
                         Label(problem, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
@@ -56,28 +58,35 @@ struct DashboardView: View {
                             .background(Color.orange.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
                             .onTapGesture { home.problem = nil; music.problem = nil }
                     }
-                    homeStatus
-                    if dashboard.visibleTiles.isEmpty {
-                        emptyState
-                    } else if tiles.isEmpty {
-                        Text("Nothing on this page yet. Tap Edit, then + to add tiles here.")
-                            .foregroundStyle(.secondary).padding(.vertical, 30)
-                    } else {
-                        TileGrid(columns: cols, spacing: spacing, cell: cell) {
-                            ForEach(tiles) { tile in
-                                tileCell(tile)
-                                    .layoutValue(key: TileSizeKey.self, value: tile.size)
+                }
+                .padding([.horizontal, .top], spacing)
+                .padding(.bottom, spacing / 2)
+                if dashboard.visibleTiles.isEmpty && pages.count == 1 {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: spacing) { homeStatus; emptyState }.padding(spacing)
+                    }
+                } else {
+                    // Pages sit side by side; swipe to move between them, like the home screen.
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 0) {
+                            ForEach(pages) { p in
+                                pageView(p, cols: cols, cell: cell, spacing: spacing)
+                                    .containerRelativeFrame(.horizontal)
+                                    .id(p.id)
                             }
                         }
-                        .animation(.spring(duration: 0.3), value: dashboard.tiles)
+                        .scrollTargetLayout()
                     }
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $page)
+                    .scrollIndicators(.hidden)
+                    .scrollDisabled(pages.count < 2)
+                    .overlay(alignment: .bottom) { if pages.count > 1 { pageDots(pages) } }
                 }
-                .padding(spacing)
             }
-            .scrollIndicators(.hidden)
         }
         .background(DashboardBackground(style: style))
-        .simultaneousGesture(pageSwipe)
+        .onChange(of: page) { old, new in if old != nil, new != nil, old != new { Feedback.shared.play(.tap) } }
         .fontDesign(style.font.design)
         .tint(style.accent.color)
         .environment(\.dashStyle, style)
@@ -90,7 +99,72 @@ struct DashboardView: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .sheet(item: $editTile) { TileEditorView(tile: $0) }
+        .alert("Name this page", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Save") {
+                if let r = renaming, let i = model.household.dashboard.pages.firstIndex(where: { $0.id == r.id }) {
+                    let name = newName.trimmingCharacters(in: .whitespaces)
+                    if !name.isEmpty { model.household.dashboard.pages[i].name = name }
+                }
+                renaming = nil
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
         .onAppear { if needsHome { home.start() } }
+    }
+
+    /// One page of tiles, scrolling up and down on its own.
+    private func pageView(_ p: DashboardPage, cols: Int, cell: CGFloat, spacing: CGFloat) -> some View {
+        let tiles = dashboard.tiles(onPage: p.id)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: spacing) {
+                if p.id == dashboard.pageList.first?.id { homeStatus }
+                if tiles.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: p.icon).font(.system(size: 40)).foregroundStyle(.secondary)
+                        Text("Nothing on “\(p.name)” yet.").font(.headline)
+                        Button { page = p.id; editing = true; showAdd = true } label: { Label("Add tiles", systemImage: "plus") }
+                            .buttonStyle(.bordered)
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 60)
+                } else {
+                    TileGrid(columns: cols, spacing: spacing, cell: cell) {
+                        ForEach(tiles) { tile in
+                            tileCell(tile)
+                                .layoutValue(key: TileSizeKey.self, value: tile.size)
+                        }
+                    }
+                    .animation(.spring(duration: 0.3), value: tiles)
+                }
+            }
+            .padding(.horizontal, spacing)
+            .padding(.top, spacing / 2)
+            .padding(.bottom, spacing + 30)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// Dots at the bottom, one per page, as on the home screen. Tap one to go there.
+    private func pageDots(_ pages: [DashboardPage]) -> some View {
+        HStack(spacing: 10) {
+            ForEach(pages) { p in
+                Circle()
+                    .fill(p.id == currentPage ? Color.primary : Color.primary.opacity(0.3))
+                    .frame(width: 8, height: 8)
+                    .onTapGesture { withAnimation(.snappy) { page = p.id } }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.bottom, 8)
+    }
+
+    /// Adds a page and goes to it.
+    private func addPage() {
+        let id = model.household.dashboard.addPage(named: "")
+        withAnimation(.snappy) { page = id }
+        // Let the new page be laid out first, then show the add-tile sheet for it.
+        Task { try? await Task.sleep(for: .milliseconds(350)); showAdd = true }
     }
 
     private var needsHome: Bool {
@@ -152,7 +226,6 @@ struct DashboardView: View {
                 ForEach(dashboard.pageList) { p in
                     let on = p.id == currentPage
                     Button {
-                        Feedback.shared.play(.tap)
                         withAnimation(.snappy) { page = p.id }
                     } label: {
                         Label(p.name, systemImage: p.icon)
@@ -162,23 +235,38 @@ struct DashboardView: View {
                             .foregroundStyle(on ? (style.accent.wantsDarkText ? Color.black : Color.white) : Color.primary)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        if !dashboard.pages.isEmpty {
+                            Button("Rename", systemImage: "pencil") { newName = p.name; renaming = p }
+                            Menu("Icon") {
+                                ForEach(["house", "sofa", "bed.double", "fork.knife", "music.note", "lightbulb", "tv", "tram.fill", "leaf", "star", "square.grid.2x2"], id: \.self) { i in
+                                    Button { setIcon(p.id, i) } label: { Label(i, systemImage: i) }
+                                }
+                            }
+                            if dashboard.pages.count > 1 {
+                                Button("Delete page", systemImage: "trash", role: .destructive) {
+                                    withAnimation { model.household.dashboard.removePage(p.id) }
+                                }
+                            }
+                        }
+                    }
+                }
+                if editing {
+                    Button { addPage() } label: {
+                        Label("New page", systemImage: "plus")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
         .scrollIndicators(.hidden)
     }
 
-    /// A sideways swipe moves between pages (not while editing, when a drag moves a tile).
-    private var pageSwipe: some Gesture {
-        DragGesture(minimumDistance: 60).onEnded { v in
-            let pages = dashboard.pageList
-            guard !editing, pages.count > 1, abs(v.translation.width) > abs(v.translation.height) * 2.5,
-                  let i = pages.firstIndex(where: { $0.id == currentPage }) else { return }
-            let next = v.translation.width < 0 ? i + 1 : i - 1
-            guard pages.indices.contains(next) else { return }
-            Feedback.shared.play(.tap)
-            withAnimation(.snappy) { page = pages[next].id }
-        }
+    private func setIcon(_ id: UUID, _ icon: String) {
+        if let i = model.household.dashboard.pages.firstIndex(where: { $0.id == id }) { model.household.dashboard.pages[i].icon = icon }
     }
 
     // MARK: Tiles
