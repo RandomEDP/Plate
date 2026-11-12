@@ -32,13 +32,13 @@ struct PlateApp: App {
                 .environment(weather)
                 .onAppear {
                     model.rollPlanForward()
-                    model.collectInbox()
+                    model.collectInbox(); Task { await model.collectVideos() }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
                         model.rollPlanForward()
-                        model.collectInbox()
+                        model.collectInbox(); Task { await model.collectVideos() }
                     case .background:
                         model.saveNow()
                     default: break
@@ -54,7 +54,7 @@ struct PlateApp: App {
                        let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "text" })?.value {
                         Task { model.banner = await engine.command(text) }
                     }
-                    model.collectInbox()
+                    model.collectInbox(); Task { await model.collectVideos() }
                 }
         }
     }

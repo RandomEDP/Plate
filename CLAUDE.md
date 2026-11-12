@@ -72,6 +72,12 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   `BulkImport` (Recipes → Import many) splits a big paste into links and captions. Recipes → Select → Re-import
   (`ReimportView`, `AppModel.fetchRecipe`, `Household.replaceRecipe`) reads chosen recipes again from their saved links
   and swaps them in place, keeping id and favourite.
+- **Video import:** for recipes only in the video. Import → From a video (Photos or Files), or share a video to Plate
+  (the extension copies it to `VideoInbox` in the app group; `AppModel.collectVideos` reads it when the app opens).
+  `App/VideoReader.swift` reads on-screen text with Vision (about a frame a second) and the speech with
+  `SFSpeechRecognizer` (on-device where it can); `VideoText` (PlateCore, tested) dedupes the screen lines and lays
+  caption + screen + speech out for `readRecipe`. A link pasted first has its caption read too and stays with the recipe.
+  Links alone can't fetch the video (Instagram and TikTok need a login), so Plate doesn't try.
 - **Share extension** (`ShareExtension/`): reads the shared link or text, parses it and appends to `inbox.json` in the
   app group; the app takes the inbox when it opens (`AppModel.collectInbox`).
 - **AI** (`App/AI/`): `AIChoice` automatic/apple/claude/off. Apple's Foundation Models (iOS 26, `@Generable`) is free

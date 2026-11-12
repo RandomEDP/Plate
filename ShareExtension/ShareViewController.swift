@@ -21,7 +21,7 @@ final class ShareViewController: UIViewController {
 
 @MainActor
 final class ShareModel: ObservableObject {
-    enum Phase { case reading, found(Recipe), failed(String), saved }
+    enum Phase { case reading, found(Recipe), failed(String), saved, videoSaved }
 
     weak var context: NSExtensionContext?
     @Published var phase: Phase = .reading
@@ -32,6 +32,16 @@ final class ShareModel: ObservableObject {
     init(context: NSExtensionContext?) { self.context = context }
 
     func load() async {
+        // A video: hand it to the app, which listens to it and reads the text on screen.
+        if let video = await sharedVideo() {
+            do {
+                try VideoInbox.add(video)
+                phase = .videoSaved
+            } catch {
+                phase = .failed("Couldn't save the video: \(error.localizedDescription)")
+            }
+            return
+        }
         let shared = await sharedText()
         guard !shared.isEmpty else {
             phase = .failed("Nothing to read here. Share a Reel or TikTok, or the recipe text.")
@@ -53,7 +63,7 @@ final class ShareModel: ObservableObject {
         let kind: RecipeSourceKind = platform == .tiktok ? .tiktok : platform == .instagram ? .instagram : (link == nil ? .manual : .web)
         let recipe = RecipeTextParser.parse(caption).recipe(source: RecipeSource(kind: kind, url: link, author: author))
         if recipe.ingredients.count < 2 {
-            phase = .failed("Couldn't find a recipe in that caption. If the recipe is in the video rather than the caption, add it in Plate with Recipes → ✎.")
+            phase = .failed("Couldn't find a recipe in that caption. If the recipe is only in the video, save the video, then share it to Plate (or use Recipes → Import → From a video).")
         } else {
             phase = .found(recipe)
         }
@@ -73,6 +83,20 @@ final class ShareModel: ObservableObject {
     }
 
     func close() { context?.completeRequest(returningItems: nil) }
+
+    /// A shared video file, copied somewhere this extension can read it.
+    private func sharedVideo() async -> URL? {
+        let providers = (context?.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
+        guard let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }) else { return nil }
+        return await withCheckedContinuation { c in
+            _ = p.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
+                // The file goes away when this returns, so copy it first.
+                guard let url else { c.resume(returning: nil); return }
+                let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (url.pathExtension.isEmpty ? "mov" : url.pathExtension))
+                c.resume(returning: (try? FileManager.default.copyItem(at: url, to: copy)) != nil ? copy : nil)
+            }
+        }
+    }
 
     /// The shared link or text, whichever the app offered.
     private func sharedText() async -> String {
@@ -108,6 +132,13 @@ struct ShareView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.orange)
                         Text(message).multilineTextAlignment(.center)
+                    }
+                    .padding()
+                case .videoSaved:
+                    VStack(spacing: 12) {
+                        Image(systemName: "film").font(.largeTitle).foregroundStyle(.green)
+                        Text("Saved. Open Plate and it'll watch the video for the recipe.").multilineTextAlignment(.center)
+                        Button("Done") { model.close() }.buttonStyle(.borderedProminent)
                     }
                     .padding()
                 case .saved:

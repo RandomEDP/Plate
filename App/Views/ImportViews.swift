@@ -1,5 +1,7 @@
+import PhotosUI
 import PlateCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension AppModel {
     var aiChoice: AIChoice {
@@ -42,8 +44,30 @@ extension AppModel {
         return recipe.ingredients.count < 2 ? nil : (recipe, usedAI)
     }
 
+    /// Reads videos shared to Plate from the share sheet, one at a time, and saves the recipes in them.
+    func collectVideos() async {
+        guard !VideoInboxState.busy else { return }
+        VideoInboxState.busy = true
+        defer { VideoInboxState.busy = false }
+        for file in VideoInbox.pending() {
+            banner = "Watching a video you shared for the recipe…"
+            do {
+                let text = try await VideoReader.read(file) { _ in }
+                if let (recipe, _) = await readRecipe(caption: text, link: nil, author: nil, platform: nil) {
+                    save(recipe)
+                    banner = "Saved \(recipe.name) from a video"
+                } else {
+                    banner = "Couldn't find a recipe in the video you shared. Type it in with Recipes → ✎."
+                }
+            } catch {
+                banner = error.localizedDescription
+            }
+            VideoInbox.remove(file)
+        }
+    }
+
     struct NoRecipe: LocalizedError {
-        var errorDescription: String? { "No recipe in the caption. It may only be in the video; type it in with Recipes → ✎." }
+        var errorDescription: String? { "No recipe in the caption. If it's only in the video, save the video and use Import → From a video." }
     }
 
     /// Fetches a link (an Osta recipe page, or an Instagram or TikTok caption) and reads the recipe from it.
@@ -65,6 +89,21 @@ extension AppModel {
     }
 }
 
+@MainActor enum VideoInboxState { static var busy = false }
+
+/// A video picked from Photos, copied somewhere Plate can read it.
+struct PickedVideo: Transferable {
+    let url: URL
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { SentTransferredFile($0.url) } importing: { received in
+            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return PickedVideo(url: copy)
+        }
+    }
+}
+
 /// Paste a Reel or TikTok link (or the caption itself). Plate fetches the caption, reads the recipe, and lets you
 /// check it before saving.
 struct ImportRecipeView: View {
@@ -79,6 +118,9 @@ struct ImportRecipeView: View {
     @State private var error: String?
     @State private var result: Recipe?
     @State private var usedAI: String?
+    @State private var videoItem: PhotosPickerItem?
+    @State private var pickingFile = false
+    @State private var step: String?
 
     var body: some View {
         NavigationStack {
@@ -97,6 +139,19 @@ struct ImportRecipeView: View {
                     .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
                 } footer: {
                     Text("In Instagram, TikTok or Osta tap Share → Copy link, then paste it here. Even quicker: tap Share → More → Save to Plate, straight from the video.")
+                }
+                Section {
+                    PhotosPicker(selection: $videoItem, matching: .videos) {
+                        Label("From a video in Photos", systemImage: "film")
+                    }
+                    .disabled(working)
+                    Button { pickingFile = true } label: { Label("From a video in Files", systemImage: "folder") }
+                        .disabled(working)
+                    if let step { HStack { ProgressView(); Text(step).foregroundStyle(.secondary) } }
+                } header: {
+                    Text("Recipe only in the video?")
+                } footer: {
+                    Text("Save the video (or screen-record it), then pick it here. Plate listens to it and reads the words on screen, all on your phone. Paste the post's link above first and Plate reads its caption too, and keeps the link with the recipe.")
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
@@ -142,6 +197,32 @@ struct ImportRecipeView: View {
             }
             .navigationTitle("Import a recipe")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: videoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    step = "Opening the video…"
+                    working = true
+                    do {
+                        guard let video = try await item.loadTransferable(type: PickedVideo.self) else {
+                            throw VideoReader.Failure.unreadable("Photos didn't hand it over")
+                        }
+                        await readVideo(video.url)
+                        try? FileManager.default.removeItem(at: video.url)
+                    } catch {
+                        self.error = error.localizedDescription
+                        working = false; step = nil
+                    }
+                    videoItem = nil
+                }
+            }
+            .fileImporter(isPresented: $pickingFile, allowedContentTypes: [.movie]) { picked in
+                guard case .success(let url) = picked else { return }
+                Task {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    await readVideo(url)
+                }
+            }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
     }
@@ -183,9 +264,41 @@ struct ImportRecipeView: View {
         await read()
     }
 
+    /// Watches a video for the recipe: the words on screen and what's said.
+    func readVideo(_ url: URL) async {
+        error = nil; result = nil; usedAI = nil
+        working = true
+        defer { working = false; step = nil }
+        // A link pasted above: its caption is read with the video (one may have what the other hasn't), and the link
+        // stays with the recipe so it isn't imported twice.
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var postCaption: String?
+        author = nil
+        if let (u, p) = SocialImport.link(in: text) {
+            link = u.absoluteString; platform = p
+            if OstaImport.kind(of: u) == nil, text.count < u.absoluteString.count + 40 {
+                step = "Reading the post's caption…"
+                if let (c, _, _) = try? await CaptionFetcher.fetch(text) { postCaption = c.text; author = c.author }
+            } else if OstaImport.kind(of: u) == nil {
+                postCaption = text
+            }
+        } else {
+            link = nil; platform = nil
+            if !text.isEmpty { postCaption = text }
+        }
+        do {
+            caption = try await VideoReader.read(url, caption: postCaption) { step = $0 }
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
+        step = "Reading the recipe…"
+        await read()
+    }
+
     func read() async {
         guard let (recipe, ai) = await model.readRecipe(caption: caption, link: link, author: author, platform: platform) else {
-            self.error = "Couldn't find a recipe in that caption. If the recipe is in the video rather than the caption, type it in with Recipes → ✎."
+            self.error = "Couldn't find a recipe in that. If the recipe is only in the video, save the video and pick it below."
             return
         }
         result = recipe
