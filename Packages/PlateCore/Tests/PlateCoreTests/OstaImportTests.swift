@@ -134,6 +134,13 @@ final class OstaImportTests: XCTestCase {
         XCTAssertNil(OstaImport.extract(.init(title: "Summer favourite", text: page)))
     }
 
+    func testSaysWhatAPageWithNoRecipeWasShowing() {
+        XCTAssertEqual(OstaImport.miss(.init(title: "", text: "")), .empty)
+        XCTAssertEqual(OstaImport.miss(.init(title: "", text: "osta\nLog in\nJoin for free\nRecipe not found\nBack to Home")), .notFound)
+        XCTAssertEqual(OstaImport.miss(.init(title: "Osta Recipes", text: "Save recipes from anywhere\nGet the app\nJoin 100,000 home cooks")), .notARecipe)
+        XCTAssertEqual(OstaImport.miss(.init(title: "Summer favourite", text: "Save this recipe\nPrep 10 mins\nA lovely summer favourite")), .unreadable)
+    }
+
     func testAmountOnlyLines() {
         for s in ["2 cloves", "1/2", "200g", "100 ml", "½", "1 tbsp", "2 x"] { XCTAssertTrue(OstaImport.isAmountOnly(s), s) }
         for s in ["2 cloves garlic", "garlic", "1 red onion", "Using a hand blender"] { XCTAssertFalse(OstaImport.isAmountOnly(s), s) }
