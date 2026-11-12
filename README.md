@@ -25,11 +25,21 @@ shopping list that fills the gaps.
   the kitchen with "Put the shopping away". Prices are rough guides.
 - **Today:** calories and protein, carbs and fat against your targets, today's planned meals, what's about to go off,
   and a quick log of what you ate.
-- **Home:** a dashboard for the flat, made for an iPad on the wall. Tiles for HomeKit lights, plugs, locks, blinds,
-  thermostats, whole rooms and scenes, next to the weather (Apple Weather),  pinned Apple Music albums (tap to play, AirPlay to a speaker), a clock,
-  today's meals, the shopping list, food to use soon and notes. Edit to add, resize, drag and remove tiles. Wall mode
-  fills the screen and keeps it on; after a few minutes with nobody touching it, it shows the cover of the album that's
-  playing, or otherwise a photo album you pick, with the time, dimmed at night. A tap brings the dashboard back.
+- **Home:** a dashboard for the flat, made for an iPad on the wall, and yours to restyle.
+  - *Tiles:* HomeKit lights (with colour, warmth and brightness), plugs, locks, blinds, thermostats, whole rooms, your
+    own groups, scenes, cameras, climate sensors, low batteries and "all lights off"; the weather, a week's forecast and
+    sunrise/sunset (Apple Weather); pinned Apple Music albums, playlists and stations; kitchen timers that speak when
+    they finish; chores with whose turn it is; bin days; a guest Wi-Fi code to scan; countdowns, world clocks, the
+    calendar, photo frames, notes, headings; today's meals, the shopping list, food to use soon, what to cook now.
+  - *Make it yours:* themes, accent and tile colours, a gradient, moving colours, a photo or the playing album behind
+    the tiles, frosted or outlined tiles, corner shape, spacing, lettering and five packs of sound effects. Every tile
+    can have its own name, icon and colour. Several pages to swipe between.
+  - *Do things:* routines (several steps from one tap, or by themselves at a time of day or at sunset), light shows for
+    colour bulbs, a spoken briefing, a tile that runs one of Apple's Shortcuts, and a box to type commands such as
+    "kitchen off, lamp 30%, pasta 10 min". `plate://command?text=…` does the same from Shortcuts or Siri.
+  - *Wall mode* fills the screen and keeps it on; after a few minutes with nobody touching it, it shows the cover of the
+    album that's playing, or otherwise a photo album you pick, with a clock (digital, analogue, in words or flip) and
+    the weather, dimmed at night. A tap, or a HomeKit motion sensor, brings the dashboard back.
   Accessories are still added and automated in Apple's Home app.
 
 ## AI

@@ -29,6 +29,58 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     case nowPlaying
     /// The weather where the device is (Apple Weather, through WeatherKit).
     case weather
+    /// Kitchen timers: start one, see them count down, hear when they finish.
+    case timer
+    /// Days until (or since) a date. `options["date"]` is the day.
+    case countdown
+    /// The next few events from the device's calendar.
+    case calendar
+    /// The flat's chores and whose turn each one is.
+    case chores
+    /// Things that come round on a schedule, such as which bin goes out this week.
+    case bins
+    /// The guest Wi-Fi as a QR code to scan.
+    case wifi
+    /// A HomeKit camera: a picture that refreshes, tap for live video. `ref` is the camera accessory.
+    case camera
+    /// Temperature and humidity from every sensor in the home.
+    case climate
+    /// How many lights are on, and one tap to turn them all off.
+    case allOff
+    /// A photo album shown as a small picture frame. `ref` is the album.
+    case photoFrame
+    /// The time somewhere else. `options["tz"]` is the time zone.
+    case worldClock
+    /// The next few days of weather.
+    case forecast
+    /// Sunrise and sunset today.
+    case sun
+    /// An Apple Music playlist or station. `ref` is its id, `options["type"]` is "playlist" or "station".
+    case playlist
+    /// Today's calories and protein against the targets.
+    case macros
+    /// The best thing to cook from what's in the kitchen.
+    case cookNow
+    /// Opens a link or runs one of Apple's Shortcuts. `options["url"]` or `options["shortcut"]`.
+    case shortcut
+    /// One of Plate's own routines (several actions from one tap). `ref` is the routine.
+    case routine
+    /// A moving light effect across the colour lights. `options["show"]` is which.
+    case lightShow
+    /// What's been switched recently.
+    case activity
+    /// A box to type what you want: "kitchen off", "play Blue", "pasta 10 min".
+    case command
+    /// Says the weather, today's meals and whose chores are due.
+    case briefing
+    /// Accessories with a low battery.
+    case battery
+    /// Several accessories switched together. `options["ids"]` lists them.
+    case group
+    /// A title across the grid, to split it into sections.
+    case heading
+    /// An empty gap.
+    case spacer
     case unknown
 
     public init(from decoder: Decoder) throws {
@@ -39,7 +91,15 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles that point at something outside Plate (HomeKit, Music, Photos) and can go missing if it's deleted there.
     public var needsRef: Bool {
         switch self {
-        case .accessory, .scene, .room, .musicAlbum: return true
+        case .accessory, .scene, .room, .musicAlbum, .camera, .photoFrame, .playlist, .routine: return true
+        default: return false
+        }
+    }
+
+    /// Tiles you can have any number of, each set up differently.
+    public var canRepeat: Bool {
+        switch self {
+        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi: return true
         default: return false
         }
     }
@@ -47,7 +107,8 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles that only make sense once, such as the clock.
     public var isSingle: Bool {
         switch self {
-        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather: return true
+        case .clock, .todaysMeals, .shoppingList, .useSoon, .nowPlaying, .weather, .timer, .calendar, .chores, .bins,
+             .climate, .allOff, .forecast, .sun, .macros, .cookNow, .activity, .command, .briefing, .battery: return true
         default: return false
         }
     }
@@ -88,24 +149,44 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
     /// A second line, such as the room or the album's artist; for a note, the note itself.
     public var subtitle: String?
     public var size: TileSize
+    /// Your own name for the tile, shown instead of the HomeKit or album name.
+    public var label: String?
+    /// Your own icon (an SF Symbol name).
+    public var icon: String?
+    /// Your own colour for the tile.
+    public var tint: RGB?
+    /// Which page the tile is on. nil is the first page.
+    public var pageId: UUID?
+    /// Settings particular to the kind of tile (a countdown's date, a world clock's time zone…), kept as text.
+    public var options: [String: String]
     public var updatedAt: Date
 
     public init(id: UUID = UUID(), kind: TileKind, ref: String? = nil, title: String, subtitle: String? = nil,
-                size: TileSize? = nil, updatedAt: Date = Date()) {
+                size: TileSize? = nil, label: String? = nil, icon: String? = nil, tint: RGB? = nil, pageId: UUID? = nil,
+                options: [String: String] = [:], updatedAt: Date = Date()) {
         self.id = id; self.kind = kind; self.ref = ref; self.title = title; self.subtitle = subtitle
         self.size = size ?? DashboardTile.defaultSize(for: kind)
+        self.label = label; self.icon = icon; self.tint = tint; self.pageId = pageId; self.options = options
         self.updatedAt = updatedAt
+    }
+
+    /// The name to show: your own if you've set one, otherwise `fallback` (the live HomeKit name) or the saved title.
+    public func name(_ fallback: String? = nil) -> String {
+        if let label, !label.trimmingCharacters(in: .whitespaces).isEmpty { return label }
+        return fallback ?? title
     }
 
     public static func defaultSize(for kind: TileKind) -> TileSize {
         switch kind {
-        case .clock, .musicAlbum, .todaysMeals, .shoppingList: return .large
-        case .nowPlaying, .useSoon, .note, .room, .weather: return .wide
+        case .clock, .musicAlbum, .todaysMeals, .shoppingList, .camera, .photoFrame, .playlist, .calendar, .chores,
+             .wifi: return .large
+        case .nowPlaying, .useSoon, .note, .room, .weather, .timer, .bins, .climate, .forecast, .activity, .command,
+             .heading, .cookNow, .macros: return .wide
         default: return .small
         }
     }
 
-    enum CodingKeys: String, CodingKey { case id, kind, ref, title, subtitle, size, updatedAt }
+    enum CodingKeys: String, CodingKey { case id, kind, ref, title, subtitle, size, label, icon, tint, pageId, options, updatedAt }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -115,6 +196,11 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
         size = try c.decodeIfPresent(TileSize.self, forKey: .size) ?? DashboardTile.defaultSize(for: kind)
+        label = c.optional(.label)
+        icon = c.optional(.icon)
+        tint = c.optional(.tint)
+        pageId = c.optional(.pageId)
+        options = c.value(.options, default: [:])
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 }
@@ -129,6 +215,19 @@ public enum IdleArtwork: Hashable, Sendable {
         if musicPlaying && hasNowPlayingArtwork { return .nowPlaying }
         if photoCount > 0 { return .photos }
         return .clockOnly
+    }
+}
+
+public enum ClockFace: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
+    case digital, analogue, words, flip
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .digital: return "Digital"
+        case .analogue: return "Analogue"
+        case .words: return "In words"
+        case .flip: return "Flip clock"
+        }
     }
 }
 
@@ -149,17 +248,32 @@ public struct IdleSettings: Codable, Hashable, Sendable {
     public var nightEnd: Int
     /// How dark the screen gets at night, 0 (not at all) to 1 (black).
     public var nightDarkness: Double
+    /// How the time is shown on the artwork screen.
+    public var clockFace: ClockFace
+    /// Show the weather next to the time.
+    public var showWeather: Bool
+    /// Slowly zoom and drift the pictures, and nudge the clock around so nothing marks the screen.
+    public var drift: Bool
+    /// Come back to the dashboard when a HomeKit motion sensor sees someone.
+    public var wakeOnMotion: Bool
+    /// What to show when there's no photo album and no music: moving colours rather than a plain backdrop.
+    public var aurora: Bool
 
     public init(minutes: Int = 3, photoAlbumId: String? = nil, photoAlbumTitle: String? = nil,
                 secondsPerSlide: Int = 20, showClock: Bool = true, nightDim: Bool = true,
-                nightStart: Int = 23 * 60, nightEnd: Int = 7 * 60, nightDarkness: Double = 0.8) {
+                nightStart: Int = 23 * 60, nightEnd: Int = 7 * 60, nightDarkness: Double = 0.8,
+                clockFace: ClockFace = .digital, showWeather: Bool = true, drift: Bool = true, wakeOnMotion: Bool = false,
+                aurora: Bool = true) {
         self.minutes = minutes; self.photoAlbumId = photoAlbumId; self.photoAlbumTitle = photoAlbumTitle
         self.secondsPerSlide = secondsPerSlide; self.showClock = showClock; self.nightDim = nightDim
         self.nightStart = nightStart; self.nightEnd = nightEnd; self.nightDarkness = nightDarkness
+        self.clockFace = clockFace; self.showWeather = showWeather; self.drift = drift; self.wakeOnMotion = wakeOnMotion
+        self.aurora = aurora
     }
 
     enum CodingKeys: String, CodingKey {
-        case minutes, photoAlbumId, photoAlbumTitle, secondsPerSlide, showClock, nightDim, nightStart, nightEnd, nightDarkness
+        case minutes, photoAlbumId, photoAlbumTitle, secondsPerSlide, showClock, nightDim, nightStart, nightEnd, nightDarkness,
+             clockFace, showWeather, drift, wakeOnMotion, aurora
     }
 
     public init(from decoder: Decoder) throws {
@@ -174,6 +288,11 @@ public struct IdleSettings: Codable, Hashable, Sendable {
         nightStart = try c.decodeIfPresent(Int.self, forKey: .nightStart) ?? d.nightStart
         nightEnd = try c.decodeIfPresent(Int.self, forKey: .nightEnd) ?? d.nightEnd
         nightDarkness = try c.decodeIfPresent(Double.self, forKey: .nightDarkness) ?? d.nightDarkness
+        clockFace = c.value(.clockFace, default: d.clockFace)
+        showWeather = c.value(.showWeather, default: d.showWeather)
+        drift = c.value(.drift, default: d.drift)
+        wakeOnMotion = c.value(.wakeOnMotion, default: d.wakeOnMotion)
+        aurora = c.value(.aurora, default: d.aurora)
     }
 }
 
@@ -181,18 +300,43 @@ public struct IdleSettings: Codable, Hashable, Sendable {
 public struct HomeDashboard: Codable, Hashable, Sendable {
     public var tiles: [DashboardTile]
     public var idle: IdleSettings
+    /// Colours, background, tile shape, font and sounds.
+    public var style: DashboardStyle
+    /// Extra pages to swipe between. Empty means a single page.
+    public var pages: [DashboardPage]
+    public var timers: [DashTimer]
+    public var chores: [Chore]
+    /// Things on a repeating schedule (bins).
+    public var recurring: [Recurring]
+    public var routines: [Routine]
+    public var schedules: [RoutineSchedule]
+    /// The most recent things switched from the dashboard, newest first.
+    public var activity: [ActivityEntry]
     public var updatedAt: Date
 
-    public init(tiles: [DashboardTile] = [], idle: IdleSettings = IdleSettings(), updatedAt: Date = Date()) {
-        self.tiles = tiles; self.idle = idle; self.updatedAt = updatedAt
+    public init(tiles: [DashboardTile] = [], idle: IdleSettings = IdleSettings(), style: DashboardStyle = DashboardStyle(),
+                pages: [DashboardPage] = [], updatedAt: Date = Date()) {
+        self.tiles = tiles; self.idle = idle; self.style = style; self.pages = pages
+        self.timers = []; self.chores = []; self.recurring = []; self.routines = []; self.schedules = []; self.activity = []
+        self.updatedAt = updatedAt
     }
 
-    enum CodingKeys: String, CodingKey { case tiles, idle, updatedAt }
+    enum CodingKeys: String, CodingKey {
+        case tiles, idle, style, pages, timers, chores, recurring, routines, schedules, activity, updatedAt
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         tiles = try c.decodeIfPresent([DashboardTile].self, forKey: .tiles) ?? []
         idle = try c.decodeIfPresent(IdleSettings.self, forKey: .idle) ?? IdleSettings()
+        style = c.value(.style, default: DashboardStyle())
+        pages = c.value(.pages, default: [])
+        timers = c.value(.timers, default: [])
+        chores = c.value(.chores, default: [])
+        recurring = c.value(.recurring, default: [])
+        routines = c.value(.routines, default: [])
+        schedules = c.value(.schedules, default: [])
+        activity = c.value(.activity, default: [])
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 
@@ -207,7 +351,7 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
     /// Adds a tile, unless the same thing is already there. Returns whether it was added.
     @discardableResult
     public mutating func add(_ tile: DashboardTile) -> Bool {
-        if tile.kind == .note || !contains(tile.kind, ref: tile.ref) {
+        if tile.kind.canRepeat || !contains(tile.kind, ref: tile.ref) {
             tiles.append(tile)
             updatedAt = Date()
             return true
@@ -497,5 +641,32 @@ public enum WeatherText {
         let rest = hours.filter { calendar.isDate($0.date, inSameDayAs: now) && $0.date >= (calendar.dateInterval(of: .hour, for: now)?.start ?? now) }
         guard let hi = rest.map(\.temperature).max(), let lo = rest.map(\.temperature).min() else { return nil }
         return (hi, lo)
+    }
+}
+
+/// One day of forecast for the forecast tile. The app fills these in from WeatherKit.
+public struct DayForecast: Hashable, Sendable {
+    public var date: Date
+    public var high: Double
+    public var low: Double
+    public var symbol: String
+    public var precipitationChance: Double
+    public init(date: Date, high: Double, low: Double, symbol: String, precipitationChance: Double) {
+        self.date = date; self.high = high; self.low = low; self.symbol = symbol; self.precipitationChance = precipitationChance
+    }
+}
+
+extension WeatherText {
+    /// "Sunset in 2 hr 5 min" / "Sunrise in 40 min": whichever comes next, for the sun tile. nil when neither is known.
+    public static func nextSun(sunrise: Date?, sunset: Date?, tomorrowSunrise: Date?, now: Date) -> (title: String, at: Date)? {
+        let options: [(String, Date?)] = [("Sunrise", sunrise), ("Sunset", sunset), ("Sunrise", tomorrowSunrise)]
+        for (name, date) in options { if let date, date > now { return (name, date) } }
+        return nil
+    }
+
+    /// The hands of an analogue clock, in degrees clockwise from 12.
+    public static func clockAngles(hour: Int, minute: Int, second: Int = 0) -> (hour: Double, minute: Double, second: Double) {
+        let m = Double(minute) + Double(second) / 60
+        return ((Double(hour % 12) + m / 60) * 30, m * 6, Double(second) * 6)
     }
 }

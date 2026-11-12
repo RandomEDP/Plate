@@ -29,7 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Core tests
-        run: swift test --package-path Packages/PlateCore
+        shell: bash
+        # Only the end of the output is kept, and on a failure the lines that say what failed, so the log is quick to read.
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/PlateCore 2>&1 | tee /tmp/test.log | tail -n 4 \
+            || { echo "--- what failed"; grep -E "error:|: error|failed \(" /tmp/test.log | grep -v "^\s*|" | sort -u | head -60; exit 1; }
 
   ios:
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.testflight) }}

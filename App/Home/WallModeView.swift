@@ -6,6 +6,7 @@ import SwiftUI
 /// the album that's playing, or otherwise your chosen photo album, with the time. A tap brings the dashboard back.
 struct WallModeView: View {
     @Environment(AppModel.self) private var model
+    @Environment(DashboardEngine.self) private var engine
     @Environment(\.dismiss) private var dismiss
     @State private var lastTouch = Date()
     @State private var idle = false
@@ -30,6 +31,9 @@ struct WallModeView: View {
             try? await Task.sleep(for: .seconds(wait))
             if !Task.isCancelled { idle = true }
         }
+        // A motion sensor or a finished timer brings the dashboard back; a routine or command can ask for the artwork.
+        .onChange(of: engine.wakeRequests) { _, _ in if idle { wake() } else { lastTouch = Date() } }
+        .onChange(of: engine.artworkRequests) { _, _ in idle = true }
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
     }
@@ -37,6 +41,7 @@ struct WallModeView: View {
     private struct TimerKey: Equatable { let lastTouch: Date; let minutes: Int }
 
     private func wake() {
+        if idle { Feedback.shared.play(.wake) }
         idle = false
         lastTouch = Date()
     }
@@ -51,6 +56,8 @@ struct WallModeView: View {
 struct IdleArtworkView: View {
     let settings: IdleSettings
     @Environment(PhotoStore.self) private var photos
+    @Environment(WeatherStore.self) private var weather
+    @Environment(AppModel.self) private var model
     @Environment(\.displayScale) private var scale
     @ObservedObject private var playerState = ApplicationMusicPlayer.shared.state
     @ObservedObject private var queue = ApplicationMusicPlayer.shared.queue
@@ -70,19 +77,23 @@ struct IdleArtworkView: View {
                     if let entry, let art = entry.artwork { NowPlayingArt(entry: entry, artwork: art, size: geo.size) }
                 case .photos:
                     if let current {
-                        Image(uiImage: current)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
+                        DriftingPhoto(image: current, size: geo.size, drift: settings.drift, seconds: Double(max(5, settings.secondsPerSlide)))
                             .id(currentId)
                             .transition(.opacity)
                     }
                 case .clockOnly:
-                    LinearGradient(colors: [.indigo, .black], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    if settings.aurora {
+                        let style = model.household.dashboard.style
+                        AuroraView(a: style.background == .system ? RGB(hex: "#1B1464")! : style.backgroundA.mixed(with: .black, 0.3),
+                                   b: style.background == .system ? RGB(hex: "#0B0B1A")! : style.backgroundB.mixed(with: .black, 0.5),
+                                   accent: style.accent)
+                    } else {
+                        LinearGradient(colors: [.indigo, .black], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    }
                 }
                 if settings.showClock || show == .clockOnly {
-                    IdleClock(big: show == .clockOnly)
+                    IdleClock(big: show == .clockOnly, face: settings.clockFace, drift: settings.drift,
+                              weather: settings.showWeather ? weather.now : nil)
                 }
                 TimelineView(.everyMinute) { ctx in
                     Color.black.opacity(IdleMode.dimming(ctx.date, settings: settings))
@@ -148,102 +159,93 @@ private struct NowPlayingArt: View {
     }
 }
 
+/// A photo that slowly zooms and slides while it's up, so the wall never looks frozen.
+private struct DriftingPhoto: View {
+    let image: UIImage
+    let size: CGSize
+    let drift: Bool
+    let seconds: Double
+    @State private var moved = false
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(drift ? (moved ? 1.12 : 1.02) : 1)
+            .offset(x: drift ? (moved ? -size.width * 0.02 : size.width * 0.02) : 0)
+            .clipped()
+            .onAppear { withAnimation(.linear(duration: seconds + 3)) { moved = true } }
+    }
+}
+
 private struct IdleClock: View {
     let big: Bool
+    let face: ClockFace
+    let drift: Bool
+    let weather: WeatherStore.Now?
+
     var body: some View {
-        TimelineView(.everyMinute) { ctx in
-            VStack(alignment: big ? .center : .leading, spacing: 2) {
-                Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute())
-                    .font(.system(size: big ? 140 : 72, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
-                    .font(big ? .title : .title3)
+        TimelineView(.periodic(from: .now, by: face == .analogue ? 1 : 10)) { ctx in
+            let c = Calendar.plate.dateComponents([.hour, .minute], from: ctx.date)
+            let nudge = drift ? IdleMode.burnInOffset(ctx.date) : (x: 0, y: 0)
+            VStack(alignment: big ? .center : .leading, spacing: 4) {
+                switch face {
+                case .analogue:
+                    AnalogueClock(date: ctx.date)
+                        .frame(width: big ? 300 : 170, height: big ? 300 : 170)
+                case .words:
+                    Text(DayText.clockWords(hour: c.hour ?? 0, minute: c.minute ?? 0).capitalizedFirst)
+                        .font(.system(size: big ? 84 : 50, weight: .semibold, design: .serif))
+                        .multilineTextAlignment(big ? .center : .leading)
+                        .minimumScaleFactor(0.5)
+                case .flip:
+                    HStack(spacing: big ? 16 : 10) {
+                        FlipCard(text: String(format: "%02d", c.hour ?? 0), big: big)
+                        FlipCard(text: String(format: "%02d", c.minute ?? 0), big: big)
+                    }
+                case .digital:
+                    Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute())
+                        .font(.system(size: big ? 140 : 72, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                }
+                HStack(spacing: 14) {
+                    Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
+                    if let weather {
+                        Label(WeatherText.temperature(weather.temperature), systemImage: weather.symbol)
+                            .symbolRenderingMode(.multicolor)
+                    }
+                }
+                .font(big ? .title : .title3)
+                if let weather, let rain = WeatherText.rainNote(weather.hours, now: ctx.date) {
+                    Label(rain, systemImage: "umbrella.fill").font(.headline)
+                }
             }
             .environment(\.locale, Locale(identifier: "en_GB"))
+            .environment(\.colorScheme, .dark)
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.6), radius: 12)
             .padding(40)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: big ? .center : .bottomLeading)
+            .offset(x: nudge.x, y: nudge.y)
+            .animation(.easeInOut(duration: 4), value: nudge.x)
         }
     }
 }
 
-/// Idle mode and wall mode settings.
-struct DashboardSettingsView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(PhotoStore.self) private var photos
-    @Environment(WeatherStore.self) private var weather
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("wallModeOnLaunch") private var wallOnLaunch = false
-    @State private var albums: [PhotoStore.AlbumInfo] = []
-
+/// One card of a flip clock: two digits on a dark tile with a line across the middle.
+private struct FlipCard: View {
+    let text: String
+    let big: Bool
     var body: some View {
-        @Bindable var model = model
-        NavigationStack {
-            Form {
-                Section {
-                    Picker("Show artwork after", selection: $model.household.dashboard.idle.minutes) {
-                        Text("Never").tag(0)
-                        ForEach([1, 2, 3, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
-                    }
-                    Toggle("Show the time", isOn: $model.household.dashboard.idle.showClock)
-                } header: { Text("When nobody's using it") } footer: {
-                    Text("While music is playing it shows the album cover. Otherwise it shows the photo album below. A tap goes back to the dashboard.")
-                }
-                Section("Photos") {
-                    if photos.canRead {
-                        Picker("Album", selection: Binding(get: { model.household.dashboard.idle.photoAlbumId },
-                                                           set: { id in
-                                                               model.household.dashboard.idle.photoAlbumId = id
-                                                               model.household.dashboard.idle.photoAlbumTitle = albums.first { $0.id == id }?.title
-                                                           })) {
-                            Text("None").tag(String?.none)
-                            ForEach(albums) { a in Text("\(a.title) (\(a.count))").tag(Optional(a.id)) }
-                        }
-                        Picker("Each photo for", selection: $model.household.dashboard.idle.secondsPerSlide) {
-                            ForEach([10, 20, 30, 60, 120, 300], id: \.self) { s in
-                                Text(s < 60 ? "\(s) seconds" : "\(s / 60) min").tag(s)
-                            }
-                        }
-                    } else if photos.status == .denied || photos.status == .restricted {
-                        Text("Plate isn't allowed to see your photos. Turn it on in Settings → Privacy & Security → Photos.")
-                            .font(.subheadline)
-                    } else {
-                        Button("Choose a photo album") { Task { await photos.authorise(); albums = photos.albums() } }
-                    }
-                }
-                Section {
-                    Toggle("Dim at night", isOn: $model.household.dashboard.idle.nightDim)
-                    if model.household.dashboard.idle.nightDim {
-                        timePicker("From", $model.household.dashboard.idle.nightStart)
-                        timePicker("Until", $model.household.dashboard.idle.nightEnd)
-                        VStack(alignment: .leading) {
-                            Text("How dark")
-                            Slider(value: $model.household.dashboard.idle.nightDarkness, in: 0.2...0.95)
-                        }
-                    }
-                } header: { Text("Night") }
-                Section {
-                    Button("Find my location again") { weather.forgetLocation(); Task { await weather.refresh(force: true) } }
-                } header: { Text("Weather") } footer: {
-                    Text("Plate keeps this device's location, rounded to about a kilometre, so the weather tile works without asking again. Use this if the device moves.")
-                }
-                Section {
-                    Toggle("Open in wall mode", isOn: $wallOnLaunch)
-                } header: { Text("This device") } footer: {
-                    Text("Turn this on for the iPad on the wall. To stop anyone leaving Plate, use Guided Access: Settings → Accessibility → Guided Access, then triple-click the top button in Plate.")
-                }
-            }
-            .navigationTitle("Dashboard")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .onAppear { albums = photos.albums() }
-        }
-    }
-
-    private func timePicker(_ title: String, _ minutes: Binding<Int>) -> some View {
-        Picker(title, selection: minutes) {
-            ForEach(Array(stride(from: 0, to: 1440, by: 30)), id: \.self) { Text(IdleMode.timeText($0)).tag($0) }
-        }
+        Text(text)
+            .font(.system(size: big ? 150 : 76, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .padding(.horizontal, big ? 22 : 12)
+            .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: big ? 22 : 12))
+            .overlay(Rectangle().fill(Color.black.opacity(0.7)).frame(height: 3))
+            .id(text)
+            .transition(.push(from: .top))
+            .animation(.easeInOut(duration: 0.5), value: text)
     }
 }

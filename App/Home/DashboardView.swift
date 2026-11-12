@@ -2,21 +2,11 @@ import PlateCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Home tab: the dashboard inside the app, with buttons to edit it and to go into wall mode.
+/// The Home tab: the dashboard inside the app. It draws its own top row (greeting and buttons) rather than a
+/// navigation bar, so the background and colours you choose run edge to edge.
 struct HomeTabView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(HomeStore.self) private var home
-
     var body: some View {
-        NavigationStack {
-            DashboardView(wall: false)
-                .navigationTitle(home.home?.name ?? "Home")
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { model.showWall = true } label: { Label("Wall mode", systemImage: "rectangle.inset.filled") }
-                    }
-                }
-        }
+        DashboardView(wall: false)
     }
 }
 
@@ -28,94 +18,179 @@ struct DashboardView: View {
     @Environment(AppModel.self) private var model
     @Environment(HomeStore.self) private var home
     @Environment(MusicStore.self) private var music
+    @Environment(DashboardEngine.self) private var engine
+    @Environment(\.colorScheme) private var deviceScheme
     @State private var editing = false
     @State private var showAdd = false
     @State private var showSettings = false
+    @State private var showStyle = false
+    @State private var editTile: DashboardTile?
     @State private var dragging: UUID?
+    @State private var page = HomeDashboard.firstPageId
 
-    private let spacing: CGFloat = 16
+    private var dashboard: HomeDashboard { model.household.dashboard }
+    private var style: DashboardStyle { dashboard.style.clamped }
+
+    private var currentPage: UUID {
+        let pages = dashboard.pageList
+        return pages.contains { $0.id == page } ? page : (pages.first?.id ?? HomeDashboard.firstPageId)
+    }
 
     var body: some View {
+        let style = self.style
+        let spacing = CGFloat(style.spacing)
+        let tiles = dashboard.tiles(onPage: currentPage)
         GeometryReader { geo in
-            let width = geo.size.width - spacing * 2
-            let cols = DashboardGrid.columns(forWidth: width, minTile: wall ? 170 : 150, spacing: spacing)
+            let width = max(100, geo.size.width - spacing * 2)
+            let cols = DashboardGrid.columns(forWidth: width, minTile: style.density.minTile, spacing: spacing)
             let cell = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
             ScrollView {
                 VStack(alignment: .leading, spacing: spacing) {
+                    header
+                    if dashboard.pageList.count > 1 { pageBar }
                     if let problem = home.problem ?? music.problem {
                         Label(problem, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+                            .background(Color.orange.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
                             .onTapGesture { home.problem = nil; music.problem = nil }
                     }
                     homeStatus
-                    if model.household.dashboard.visibleTiles.isEmpty {
+                    if dashboard.visibleTiles.isEmpty {
                         emptyState
+                    } else if tiles.isEmpty {
+                        Text("Nothing on this page yet. Tap Edit, then + to add tiles here.")
+                            .foregroundStyle(.secondary).padding(.vertical, 30)
                     } else {
                         TileGrid(columns: cols, spacing: spacing, cell: cell) {
-                            ForEach(model.household.dashboard.visibleTiles) { tile in
+                            ForEach(tiles) { tile in
                                 tileCell(tile)
                                     .layoutValue(key: TileSizeKey.self, value: tile.size)
                             }
                         }
-                        .animation(.spring(duration: 0.3), value: model.household.dashboard.tiles)
+                        .animation(.spring(duration: 0.3), value: dashboard.tiles)
                     }
                 }
                 .padding(spacing)
-                .padding(.top, wall ? 44 : 0)
             }
             .scrollIndicators(.hidden)
         }
-        .background(Color(.systemGroupedBackground))
-        .overlay(alignment: .topTrailing) { if wall { wallControls } }
-        .toolbar {
-            if !wall {
-                ToolbarItemGroup(placement: .topBarLeading) { editButtons }
-            }
-        }
-        .sheet(isPresented: $showAdd) { AddTileView() }
+        .background(DashboardBackground(style: style))
+        .simultaneousGesture(pageSwipe)
+        .fontDesign(style.font.design)
+        .tint(style.accent.color)
+        .environment(\.dashStyle, style)
+        .environment(\.colorScheme, style.scheme ?? deviceScheme)
+        .sheet(isPresented: $showAdd) { AddTileView(page: dashboard.pages.isEmpty ? nil : currentPage) }
         .sheet(isPresented: $showSettings) { DashboardSettingsView() }
-        .onAppear { if !model.household.dashboard.tiles.isEmpty && needsHome { home.start() } }
+        .sheet(isPresented: $showStyle) {
+            StyleEditorView()
+                .presentationDetents([.medium, .large])
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        }
+        .sheet(item: $editTile) { TileEditorView(tile: $0) }
+        .onAppear { if needsHome { home.start() } }
     }
 
     private var needsHome: Bool {
-        model.household.dashboard.tiles.contains { [.accessory, .scene, .room].contains($0.kind) }
+        let kinds: Set<TileKind> = [.accessory, .scene, .room, .group, .camera, .climate, .allOff, .battery, .lightShow, .command]
+        return dashboard.tiles.contains { kinds.contains($0.kind) } || !dashboard.routines.isEmpty
     }
 
-    @ViewBuilder private var editButtons: some View {
-        Button(editing ? "Done" : "Edit") { withAnimation { editing.toggle() } }
-            .fontWeight(editing ? .semibold : .regular)
-        if editing {
-            Button { showAdd = true } label: { Label("Add tile", systemImage: "plus") }
-            Button { showSettings = true } label: { Label("Dashboard settings", systemImage: "gearshape") }
+    // MARK: Top row
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if style.showGreeting {
+                TimelineView(.everyMinute) { ctx in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.household.members.first?.name))
+                            .font(.system(size: wall ? 34 : 28, weight: .bold))
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        let summary = engine.summaryLine(now: ctx.date)
+                        if !summary.isEmpty {
+                            Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            controls
         }
     }
 
-    /// Small, faint buttons in wall mode so they don't spoil the look.
-    private var wallControls: some View {
-        HStack(spacing: 14) {
-            editButtons
-            if !editing, let onExit {
-                Button { onExit() } label: { Label("Leave wall mode", systemImage: "xmark") }
+    /// Small buttons that stay out of the way: faint in wall mode until you're editing.
+    private var controls: some View {
+        HStack(spacing: 16) {
+            if editing {
+                Button { Feedback.shared.play(.tap); showAdd = true } label: { Label("Add tile", systemImage: "plus") }
+                Button { showStyle = true } label: { Label("Colours and sounds", systemImage: "paintbrush") }
+                Button { showSettings = true } label: { Label("Dashboard settings", systemImage: "gearshape") }
+                Button("Done") { withAnimation { editing = false } }.fontWeight(.semibold)
+            } else {
+                Button { withAnimation { editing = true } } label: { Label("Edit", systemImage: "pencil") }
+                if wall, let onExit {
+                    Button { onExit() } label: { Label("Leave wall mode", systemImage: "xmark") }
+                } else if !wall {
+                    Button { model.showWall = true } label: { Label("Wall mode", systemImage: "rectangle.inset.filled") }
+                }
             }
         }
         .labelStyle(.iconOnly)
         .font(.title3)
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 16).padding(.vertical, 9)
         .background(.ultraThinMaterial, in: Capsule())
-        .opacity(editing ? 1 : 0.6)
-        .padding(.trailing, spacing).padding(.top, 8)
+        .opacity(editing || !wall ? 1 : 0.55)
     }
+
+    // MARK: Pages
+
+    private var pageBar: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(dashboard.pageList) { p in
+                    let on = p.id == currentPage
+                    Button {
+                        Feedback.shared.play(.tap)
+                        withAnimation(.snappy) { page = p.id }
+                    } label: {
+                        Label(p.name, systemImage: p.icon)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(on ? AnyShapeStyle(style.accent.color) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+                            .foregroundStyle(on ? (style.accent.wantsDarkText ? Color.black : Color.white) : Color.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// A sideways swipe moves between pages (not while editing, when a drag moves a tile).
+    private var pageSwipe: some Gesture {
+        DragGesture(minimumDistance: 60).onEnded { v in
+            let pages = dashboard.pageList
+            guard !editing, pages.count > 1, abs(v.translation.width) > abs(v.translation.height) * 2.5,
+                  let i = pages.firstIndex(where: { $0.id == currentPage }) else { return }
+            let next = v.translation.width < 0 ? i + 1 : i - 1
+            guard pages.indices.contains(next) else { return }
+            Feedback.shared.play(.tap)
+            withAnimation(.snappy) { page = pages[next].id }
+        }
+    }
+
+    // MARK: Tiles
 
     @ViewBuilder private func tileCell(_ tile: DashboardTile) -> some View {
         let base = TileView(tile: tile, editing: editing)
             .opacity(dragging == tile.id ? 0.4 : 1)
-            .overlay(alignment: .topLeading) { if editing { EditBadge(tile: tile) } }
-            .modifier(Jiggle(on: editing))
         if editing {
             base
+                .overlay { Color.clear.contentShape(Rectangle()).onTapGesture { editTile = tile } }
+                .overlay(alignment: .topLeading) { EditBadge(tile: tile, edit: { editTile = tile }) }
+                .modifier(Jiggle(on: true))
                 .onDrag {
                     dragging = tile.id
                     return NSItemProvider(object: tile.id.uuidString as NSString)
@@ -145,9 +220,9 @@ struct DashboardView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Your dashboard").font(.title2.bold())
-            Text("Put your lights, plugs and scenes next to Apple Music albums, today's meals and the shopping list. "
-                 + "Mount an iPad on the wall and turn on wall mode: after a few minutes it shows your photos, or the "
-                 + "album that's playing, and a tap brings the dashboard back.")
+            Text("Put your lights, plugs and scenes next to Apple Music albums, timers, the weather, chores and today's meals. "
+                 + "Choose the colours, background and sounds. Mount an iPad on the wall and turn on wall mode: after a few "
+                 + "minutes it shows your photos, or the album that's playing, and a tap brings the dashboard back.")
                 .foregroundStyle(.secondary)
             HStack {
                 Button {
@@ -170,6 +245,9 @@ struct DashboardView: View {
         var tiles = DashboardStarter.layout(accessories: home.summaries, scenes: home.sceneSummaries)
         tiles.insert(DashboardTile(kind: .weather, title: "Weather"), at: 1)
         tiles.insert(DashboardTile(kind: .nowPlaying, title: "Now playing"), at: 2)
+        tiles.insert(DashboardTile(kind: .timer, title: "Timers"), at: 3)
+        tiles.insert(DashboardTile(kind: .allOff, title: "All lights"), at: 4)
+        tiles.append(DashboardTile(kind: .command, title: "Type a command"))
         for t in tiles { model.household.dashboard.add(t) }
     }
 
@@ -183,33 +261,50 @@ struct DashboardView: View {
     }
 }
 
-/// The remove button and size menu on a tile in edit mode.
+/// The remove button and the menu on a tile in edit mode.
 private struct EditBadge: View {
     let tile: DashboardTile
+    let edit: () -> Void
     @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack {
             Button {
+                if tile.kind == .wifi { SecretStore.set(SecretStore.wifiAccount(tile.id), nil) }
                 withAnimation { model.household.dashboard.remove(tile.id) }
             } label: {
                 Image(systemName: "minus.circle.fill").font(.title).symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .red)
             }
-            .accessibilityLabel("Remove \(tile.title)")
+            .accessibilityLabel("Remove \(tile.name())")
             Spacer()
             Menu {
+                Button("Name, icon, colour…", systemImage: "slider.horizontal.3", action: edit)
                 Picker("Size", selection: Binding(get: { tile.size },
                                                   set: { s in withAnimation { model.household.dashboard.resize(tile.id, to: s) } })) {
                     ForEach(TileSize.allCases) { Text($0.title).tag($0) }
                 }
                 Button("Move earlier", systemImage: "arrow.left") { withAnimation { model.household.dashboard.shift(tile.id, by: -1) } }
                 Button("Move later", systemImage: "arrow.right") { withAnimation { model.household.dashboard.shift(tile.id, by: 1) } }
+                if model.household.dashboard.pages.count > 1 {
+                    Menu("Move to page") {
+                        ForEach(model.household.dashboard.pages) { p in
+                            Button(p.name, systemImage: p.icon) { withAnimation { model.household.dashboard.moveTile(tile.id, toPage: p.id) } }
+                        }
+                    }
+                }
+                if tile.kind.canRepeat {
+                    Button("Duplicate", systemImage: "plus.square.on.square") {
+                        var copy = tile
+                        copy.id = UUID()
+                        model.household.dashboard.add(copy)
+                    }
+                }
             } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right.circle.fill").font(.title)
+                Image(systemName: "ellipsis.circle.fill").font(.title)
                     .symbolRenderingMode(.palette).foregroundStyle(.white, .blue)
             }
-            .accessibilityLabel("Resize or move \(tile.title)")
+            .accessibilityLabel("Change \(tile.name())")
         }
         .padding(-8)
     }
