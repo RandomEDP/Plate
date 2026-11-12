@@ -119,8 +119,7 @@ struct WeatherTile: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            TileBackground()
+        TileCard {
             VStack(alignment: .leading, spacing: 8) {
                 if let now = weather.now {
                     HStack(alignment: .top) {
@@ -129,7 +128,7 @@ struct WeatherTile: View {
                             .font(.system(size: 40))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(WeatherText.temperature(now.temperature))
-                                .font(.system(size: 40, weight: .semibold, design: .rounded))
+                                .font(.system(size: 40, weight: .semibold))
                             Text(now.condition).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)

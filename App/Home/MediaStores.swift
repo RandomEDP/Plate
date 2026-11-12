@@ -12,6 +12,7 @@ final class MusicStore {
     var status: MusicAuthorization.Status = MusicAuthorization.currentStatus
     var problem: String?
     private var cache: [String: Album] = [:]
+    private var playlists: [String: Playlist] = [:]
 
     var player: ApplicationMusicPlayer { ApplicationMusicPlayer.shared }
 
@@ -74,6 +75,71 @@ final class MusicStore {
             try await player.play()
         } catch {
             problem = "Couldn't play \(album.title): \(error.localizedDescription). Playing needs an Apple Music subscription."
+        }
+    }
+
+    /// Plays a pinned album (type nil), playlist or station.
+    func play(_ ref: String, type: String?) async {
+        guard let type, type != "album" else { await play(ref); return }
+        let id = MusicItemID(ref)
+        do {
+            if type == "station" {
+                guard let s = try await MusicCatalogResourceRequest<Station>(matching: \.id, equalTo: id).response().items.first else {
+                    problem = "Couldn't find that station in Apple Music any more."
+                    return
+                }
+                player.queue = [s]
+            } else {
+                guard let p = await playlist(ref) else {
+                    problem = "Couldn't find that playlist in Apple Music any more. Remove the tile and pin it again."
+                    return
+                }
+                player.queue = [p]
+            }
+            try await player.play()
+        } catch {
+            problem = "Couldn't play that: \(error.localizedDescription). Playing needs an Apple Music subscription."
+        }
+    }
+
+    /// A playlist from the catalogue or your library.
+    func playlist(_ ref: String) async -> Playlist? {
+        if let p = playlists[ref] { return p }
+        let id = MusicItemID(ref)
+        if let p = try? await MusicCatalogResourceRequest<Playlist>(matching: \.id, equalTo: id).response().items.first {
+            playlists[ref] = p
+            return p
+        }
+        var lib = MusicLibraryRequest<Playlist>()
+        lib.filter(matching: \.id, equalTo: id)
+        if let p = try? await lib.response().items.first {
+            playlists[ref] = p
+            return p
+        }
+        return nil
+    }
+
+    /// Your own playlists.
+    func libraryPlaylists() async -> [Playlist] {
+        var request = MusicLibraryRequest<Playlist>()
+        request.limit = 60
+        let list = (try? await request.response().items).map(Array.init) ?? []
+        for p in list { playlists[p.id.rawValue] = p }
+        return list
+    }
+
+    /// Playlists and stations from the Apple Music catalogue matching a search.
+    func searchPlaylists(_ term: String) async -> (playlists: [Playlist], stations: [Station]) {
+        guard !term.trimmingCharacters(in: .whitespaces).isEmpty else { return ([], []) }
+        do {
+            var request = MusicCatalogSearchRequest(term: term, types: [Playlist.self, Station.self])
+            request.limit = 15
+            let r = try await request.response()
+            for p in r.playlists { playlists[p.id.rawValue] = p }
+            return (Array(r.playlists), Array(r.stations))
+        } catch {
+            problem = "Couldn't search Apple Music: \(error.localizedDescription)"
+            return ([], [])
         }
     }
 

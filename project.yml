@@ -51,6 +51,7 @@ targets:
         NSHomeKitUsageDescription: Plate shows your lights, plugs and scenes on its home dashboard so you can switch them from there.
         NSAppleMusicUsageDescription: Plate plays the albums you pin to its home dashboard.
         NSLocationWhenInUseUsageDescription: Plate uses your location once, roughly, to show the weather on its home dashboard.
+        NSCalendarsFullAccessUsageDescription: Plate shows your next few calendar events on its home dashboard.
         NSPhotoLibraryUsageDescription: Plate shows a photo album you choose on the wall dashboard when nobody's using it.
         CFBundleURLTypes:
           - CFBundleURLName: com.randomedp.plate
