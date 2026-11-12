@@ -372,4 +372,108 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(back.tiles[0].id, id, "The first keeps its id")
         XCTAssertEqual(Set(back.tiles.map(\.id)).count, 3)
     }
+
+    // MARK: Moving tiles freely (Ethan, 12 November 2026: drag a tile anywhere; empty spots stay empty)
+
+    private func spots(_ d: HomeDashboard, columns: Int = 4) -> [String: [Int]] {
+        let page = d.pageList[0].id
+        let tiles = d.tiles(onPage: page)
+        let placed = DashboardGrid.place(tiles.map { (id: $0.id, size: $0.size, row: $0.row, column: $0.column) }, columns: columns)
+        var out: [String: [Int]] = [:]
+        for (t, p) in zip(tiles, placed) { out[t.title] = [p.row, p.column] }
+        return out
+    }
+
+    private func smallTiles(_ names: [String]) -> HomeDashboard {
+        var d = HomeDashboard()
+        for n in names { d.add(DashboardTile(kind: .note, title: n, size: .small)) }
+        return d
+    }
+
+    func testTilesWithASpotKeepItAndLeaveGaps() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let placed = DashboardGrid.place([(id: a, size: .small, row: 2, column: 3), (id: b, size: .small, row: nil, column: nil),
+                                          (id: c, size: .wide, row: 0, column: 1)], columns: 4)
+        XCTAssertEqual(placed.map(\.id), [a, b, c], "Same order as asked")
+        XCTAssertEqual([placed[0].row, placed[0].column], [2, 3])
+        XCTAssertEqual([placed[2].row, placed[2].column], [0, 1])
+        XCTAssertEqual([placed[1].row, placed[1].column], [0, 0], "Tiles without a spot fill the first gap")
+        XCTAssertEqual(DashboardGrid.rowCount(placed), 3, "The empty row in between is kept")
+    }
+
+    func testASpotThatDoesNotFitFallsBackToTheFirstGap() {
+        let a = UUID(), b = UUID()
+        let placed = DashboardGrid.place([(id: a, size: .wide, row: 0, column: 5), (id: b, size: .small, row: 0, column: 0)], columns: 2)
+        XCTAssertEqual([placed[1].row, placed[1].column], [0, 0])
+        XCTAssertEqual([placed[0].row, placed[0].column], [1, 0], "Too far right for a phone: it goes in the next gap")
+        let clash = DashboardGrid.place([(id: a, size: .small, row: 1, column: 1), (id: b, size: .small, row: 1, column: 1)], columns: 3)
+        XCTAssertFalse(DashboardGrid.overlap(clash[0], clash[1]), "Two tiles never share a cell")
+    }
+
+    func testDraggingATileToAnEmptyCell() {
+        var d = smallTiles(["A", "B", "C"])
+        XCTAssertEqual(spots(d), ["A": [0, 0], "B": [0, 1], "C": [0, 2]])
+        d.moveTile(d.tiles[0].id, toRow: 2, column: 3, columns: 4)
+        XCTAssertEqual(spots(d), ["A": [2, 3], "B": [0, 1], "C": [0, 2]], "The others stay put and A's old spot stays empty")
+    }
+
+    func testDraggingOntoAnotherTileSwapsThem() {
+        var d = smallTiles(["A", "B", "C"])
+        d.moveTile(d.tiles[0].id, toRow: 0, column: 2, columns: 4)
+        XCTAssertEqual(spots(d), ["A": [0, 2], "B": [0, 1], "C": [0, 0]])
+    }
+
+    func testDraggingABigTileOverSeveralMovesThemOutOfTheWay() {
+        var d = smallTiles(["A", "B", "C"])
+        d.add(DashboardTile(kind: .note, title: "Big", size: .large))
+        XCTAssertEqual(spots(d)["Big"], [1, 0])
+        d.moveTile(d.tiles[3].id, toRow: 0, column: 0, columns: 4)
+        let s = spots(d)
+        XCTAssertEqual(s["Big"], [0, 0])
+        XCTAssertEqual(s["C"], [0, 2], "Not in the way, so it stays")
+        let placed = DashboardGrid.place(d.tiles.map { (id: $0.id, size: $0.size, row: $0.row, column: $0.column) }, columns: 4)
+        for i in placed.indices { for j in placed.indices where i < j { XCTAssertFalse(DashboardGrid.overlap(placed[i], placed[j])) } }
+    }
+
+    func testDraggingTooFarRightKeepsTheTileOnTheGrid() {
+        var d = smallTiles(["A"])
+        d.add(DashboardTile(kind: .note, title: "Wide", size: .wide))
+        d.moveTile(d.tiles[1].id, toRow: 1, column: 3, columns: 4)
+        XCTAssertEqual(spots(d)["Wide"], [1, 2])
+    }
+
+    func testRemovingATileLeavesItsSpaceOnceTilesHaveBeenMoved() {
+        var d = smallTiles(["A", "B", "C"])
+        d.moveTile(d.tiles[2].id, toRow: 1, column: 0, columns: 4)
+        d.remove(d.tiles[0].id)
+        XCTAssertEqual(spots(d), ["B": [0, 1], "C": [1, 0]], "B doesn't slide into A's place")
+        d.add(DashboardTile(kind: .note, title: "New", size: .small))
+        XCTAssertEqual(spots(d)["New"], [0, 0], "A new tile goes in the first gap")
+    }
+
+    func testTidyingAPageClosesTheGaps() {
+        var d = smallTiles(["A", "B"])
+        d.moveTile(d.tiles[1].id, toRow: 3, column: 3, columns: 4)
+        d.tidyPage(d.pageList[0].id)
+        XCTAssertEqual(spots(d), ["A": [0, 0], "B": [0, 1]])
+    }
+
+    func testMovingToAnotherPageOrFolderForgetsTheSpot() {
+        var d = smallTiles(["A"])
+        d.moveTile(d.tiles[0].id, toRow: 2, column: 2, columns: 4)
+        let page = d.addPage(named: "Music")
+        d.moveTile(d.tiles[0].id, toPage: page)
+        XCTAssertNil(d.tiles[0].row)
+        XCTAssertNil(d.tiles[0].column)
+    }
+
+    func testSpotsAreSavedAndOldFilesHaveNone() throws {
+        var d = smallTiles(["A"])
+        d.moveTile(d.tiles[0].id, toRow: 1, column: 2, columns: 4)
+        let back = try JSONDecoder().decode(HomeDashboard.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(back.tiles[0].row, 1)
+        XCTAssertEqual(back.tiles[0].column, 2)
+        let old = try JSONDecoder().decode(DashboardTile.self, from: Data(#"{"kind":"note","title":"Old"}"#.utf8))
+        XCTAssertNil(old.row)
+    }
 }

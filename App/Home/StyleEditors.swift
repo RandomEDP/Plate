@@ -295,6 +295,8 @@ struct TileEditorView: View {
                 }
                 .pickerStyle(.navigationLink)
             }
+        case .calendar:
+            CalendarSettings(options: $draft.options)
         case .clock:
             Section("Clock") {
                 Picker("Face", selection: option("face")) {

@@ -1,4 +1,5 @@
 import CoreImage.CIFilterBuiltins
+import Combine
 import EventKit
 import HomeKit
 import Observation
@@ -186,63 +187,72 @@ struct WorldClockTile: View {
 
 // MARK: Calendar
 
-/// The device's calendar, for the calendar tile. Asked for once; Plate only reads it.
+/// The device's calendars, for the calendar tiles: every calendar set up in Settings → Calendar, including ones shared
+/// with you in iCloud, Google or Exchange calendars and subscribed ones. Asked for once; Plate only reads them.
 @MainActor
 @Observable
 final class CalendarStore {
     static let shared = CalendarStore()
 
-    struct Item: Identifiable {
+    struct Source: Identifiable, Hashable {
         var id: String
         var title: String
-        var start: Date
-        var allDay: Bool
+        /// The account it belongs to, such as iCloud or Google.
+        var account: String
         var color: Color
+        var subscribed: Bool
     }
 
     var status = EKEventStore.authorizationStatus(for: .event)
-    var events: [Item] = []
+    private(set) var events: [CalendarEvent] = []
+    private(set) var calendars: [Source] = []
     @ObservationIgnored private let store = EKEventStore()
+    @ObservationIgnored private var fetched: Date?
 
-    func refresh(days: Int = 7) async {
+    var colours: [String: Color] { Dictionary(calendars.map { ($0.id, $0.color) }, uniquingKeysWith: { a, _ in a }) }
+    var canRead: Bool { status == .fullAccess }
+
+    /// Reads the next month of events from every calendar. Each tile picks its own calendars and days from these.
+    func refresh(force: Bool = false) async {
         if status == .notDetermined {
             _ = try? await store.requestFullAccessToEvents()
             status = EKEventStore.authorizationStatus(for: .event)
         }
-        guard status == .fullAccess else { events = []; return }
-        let start = Date()
-        let end = Calendar.plate.date(byAdding: .day, value: days, to: Calendar.plate.startOfDay(for: start)) ?? start
+        guard status == .fullAccess else { events = []; calendars = []; return }
+        if !force, let fetched, Date().timeIntervalSince(fetched) < 60 { return }
+        fetched = Date()
+        store.refreshSourcesIfNecessary()
+        let cals = store.calendars(for: .event)
+        calendars = cals.map {
+            Source(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title ?? "On this iPad",
+                   color: Color(cgColor: $0.cgColor), subscribed: $0.isSubscribed)
+        }
+        .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
+        let start = Calendar.plate.startOfDay(for: Date())
+        let end = Calendar.plate.date(byAdding: .day, value: 32, to: start) ?? start
         let found = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
-        events = found.sorted { $0.startDate < $1.startDate }.prefix(14).enumerated().map { i, e in
-            Item(id: "\(i)-\(e.eventIdentifier ?? "")", title: e.title ?? "Event", start: e.startDate, allDay: e.isAllDay,
-                 color: Color(cgColor: e.calendar.cgColor))
+        events = found.prefix(400).enumerated().map { i, e in
+            CalendarEvent(id: "\(i)-\(e.eventIdentifier ?? "")-\(e.startDate.timeIntervalSince1970)",
+                          calendarId: e.calendar.calendarIdentifier, title: e.title ?? "Event",
+                          start: e.startDate, end: e.endDate, allDay: e.isAllDay, location: e.location)
         }
     }
 }
 
 struct CalendarTile: View {
     let tile: DashboardTile
+    @Environment(\.dashStyle) private var style
     private var calendar: CalendarStore { CalendarStore.shared }
 
     var body: some View {
         TileCard {
-            VStack(alignment: .leading, spacing: 8) {
-                TileHeader(title: tile.name("Coming up"), symbol: "calendar")
+            VStack(alignment: .leading, spacing: 6) {
+                TileHeader(title: tile.name("Calendar"), symbol: "calendar")
                 if calendar.status == .denied || calendar.status == .restricted || calendar.status == .writeOnly {
-                    Text("Plate isn't allowed to see your calendar. Turn on full access in Settings → Privacy & Security → Calendars.")
+                    Text("Plate isn't allowed to see your calendars. Turn on Full Access in Settings → Privacy & Security → Calendars → Plate.")
                         .font(.caption).foregroundStyle(.secondary)
-                } else if calendar.events.isEmpty {
-                    Text("Nothing in the next week.").font(.subheadline).foregroundStyle(.secondary)
-                }
-                ForEach(calendar.events.prefix(tile.size == .large || tile.size == .tall ? 6 : 2)) { e in
-                    HStack(spacing: 8) {
-                        Capsule().fill(e.color).frame(width: 4, height: 30)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(e.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                            Text(DayText.relative(e.start, now: Date()) + (e.allDay ? "" : " at \(WorldClockTile.time(e.start, Calendar.plate.timeZone))"))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
+                } else {
+                    TimelineView(.everyMinute) { ctx in list(now: ctx.date) }
                 }
                 Spacer(minLength: 0)
             }
@@ -251,9 +261,105 @@ struct CalendarTile: View {
         .task {
             while !Task.isCancelled {
                 await calendar.refresh()
-                try? await Task.sleep(for: .seconds(15 * 60))
+                try? await Task.sleep(for: .seconds(5 * 60))
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
+            Task { await calendar.refresh(force: true) }
+        }
+    }
+
+    @ViewBuilder private func list(now: Date) -> some View {
+        let shown = CalendarTileSettings.events(calendar.events, options: tile.options, now: now, calendar: .plate)
+        let limit = tile.size == .large || tile.size == .tall ? 7 : tile.size == .wide ? 3 : 2
+        let colours = calendar.colours
+        if shown.isEmpty {
+            let days = CalendarTileSettings.days(tile.options)
+            Text(days == 1 ? "Nothing else today." : "Nothing in the next \(days) days.")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(shown.prefix(limit).enumerated()), id: \.element.id) { i, e in
+                let heading = CalendarTileSettings.dayHeading(e.start, now: now, calendar: .plate)
+                if tile.size != .small, i == 0 || heading != CalendarTileSettings.dayHeading(shown[i - 1].start, now: now, calendar: .plate) {
+                    Text(heading).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, i == 0 ? 0 : 4)
+                }
+                HStack(spacing: 8) {
+                    Capsule().fill(colours[e.calendarId] ?? style.accent.color).frame(width: 4, height: 30)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(e.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                        Text(detail(e, now: now)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+
+    /// "19:00 to 20:30 · The Pub", "All day", or "Tomorrow at 09:00" on a small tile (which has no day headings).
+    private func detail(_ e: CalendarEvent, now: Date) -> String {
+        let time: String
+        if e.allDay {
+            time = "All day"
+        } else if e.start <= now {
+            time = "Now, until \(HeaderClock.timeText(e.end, calendar: .plate))"
+        } else {
+            time = "\(HeaderClock.timeText(e.start, calendar: .plate)) to \(HeaderClock.timeText(e.end, calendar: .plate))"
+        }
+        var parts = [tile.size == .small ? CalendarTileSettings.dayHeading(e.start, now: now, calendar: .plate) + ", " + time : time]
+        if tile.size != .small, let place = e.location?.split(separator: "\n").first, !place.isEmpty { parts.append(String(place)) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// The calendar tile's settings: which calendars (shared ones included) and how far ahead.
+struct CalendarSettings: View {
+    @Binding var options: [String: String]
+    private var store: CalendarStore { CalendarStore.shared }
+
+    var body: some View {
+        Section {
+            Picker("Show", selection: Binding(get: { CalendarTileSettings.days(options) },
+                                              set: { options["days"] = $0 == CalendarTileSettings.defaultDays ? nil : "\($0)" })) {
+                ForEach(CalendarTileSettings.dayChoices, id: \.self) { d in
+                    Text(d == 1 ? "Today only" : d == 7 ? "The next week" : d == 14 ? "The next two weeks" : d == 31 ? "The next month" : "The next \(d) days").tag(d)
+                }
+            }
+        } header: { Text("How far ahead") }
+        Section {
+            if store.canRead {
+                let all = store.calendars.map(\.id)
+                let chosen = CalendarTileSettings.calendars(options)
+                Button { CalendarTileSettings.setCalendars([], in: &options) } label: { tick("Every calendar", chosen.isEmpty) }
+                    .foregroundStyle(.primary)
+                ForEach(Dictionary(grouping: store.calendars, by: \.account).sorted { $0.key < $1.key }, id: \.key) { account, cals in
+                    ForEach(cals) { c in
+                        Button { CalendarTileSettings.toggle(c.id, all: all, in: &options) } label: {
+                            HStack {
+                                Circle().fill(c.color).frame(width: 12, height: 12)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(c.title)
+                                    Text(c.subscribed ? "\(account) · subscribed" : account).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if chosen.isEmpty || chosen.contains(c.id) { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                }
+            } else if store.status == .notDetermined {
+                Button("Allow Plate to see your calendars") { Task { await store.refresh(force: true) } }
+            } else {
+                Text("Plate isn't allowed to see your calendars. Turn on Full Access in Settings → Privacy & Security → Calendars → Plate.")
+            }
+        } header: { Text("Calendars") } footer: {
+            Text("Every calendar on this iPad is here, including ones shared with you. A calendar someone shares in iCloud appears once you've accepted the invitation in the Calendar app. Google and Outlook calendars appear once the account is added in Settings → Calendar → Accounts.")
+        }
+        .task { await store.refresh(force: true) }
+    }
+
+    private func tick(_ title: String, _ on: Bool) -> some View {
+        HStack { Text(title); Spacer(); if on { Image(systemName: "checkmark").foregroundStyle(.tint) } }
     }
 }
 

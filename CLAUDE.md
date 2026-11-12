@@ -67,7 +67,8 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   Plate's own parsing stands.
 - **Planner** (`Planner.swift`): seeded, scores recipes by what's in stock, overlap with the rest of the week, expiring
   food, favourites, batch cooking and calorie targets. Locked entries stay put.
-- **Home dashboard**: `Dashboard.swift` in PlateCore holds the tiles, grid packing (`DashboardGrid.place`), idle
+- **Home dashboard**: `Dashboard.swift` in PlateCore holds the tiles, grid packing (`DashboardGrid.place`), free placement (`row`/`column` per tile, `moveTile`, `tidyPage`; a spot that doesn't fit a narrower
+  grid falls back to the first gap), idle
   timing, night dimming, the slideshow order and `IdleArtwork.choose` (album cover while music plays, else the photo
   album, else a clock); all tested in `DashboardTests.swift`. Saved as `household.dashboard`. The app side is
   `App/Home/`: `HomeStore` (HomeKit), `MusicStore` and `PhotoStore` (MusicKit, PhotoKit), `DashboardView` (grid, edit
