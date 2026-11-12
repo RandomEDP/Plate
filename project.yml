@@ -15,7 +15,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
-    TARGETED_DEVICE_FAMILY: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 targets:
   Plate:
@@ -31,6 +31,8 @@ targets:
       path: App/Plate.entitlements
       properties:
         com.apple.security.application-groups: [group.com.randomedp.plate.share]
+        com.apple.developer.homekit: true
+        com.apple.developer.weatherkit: true
     info:
       path: App/Info.plist
       properties:
@@ -40,16 +42,23 @@ targets:
         LSApplicationCategoryType: public.app-category.food-and-drink
         UILaunchScreen:
           UIColorName: AccentColor
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # iPhone stays portrait. The iPad (the wall dashboard) turns every way, which Apple requires for iPad apps.
+        UISupportedInterfaceOrientations~iphone: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Plate uses the camera to scan barcodes on food you add to your kitchen.
+        NSHomeKitUsageDescription: Plate shows your lights, plugs and scenes on its home dashboard so you can switch them from there.
+        NSAppleMusicUsageDescription: Plate plays the albums you pin to its home dashboard.
+        NSLocationWhenInUseUsageDescription: Plate uses your location once, roughly, to show the weather on its home dashboard.
+        NSPhotoLibraryUsageDescription: Plate shows a photo album you choose on the wall dashboard when nobody's using it.
         CFBundleURLTypes:
           - CFBundleURLName: com.randomedp.plate
             CFBundleURLSchemes: [plate]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.randomedp.plate
-        TARGETED_DEVICE_FAMILY: "1"   # iPhone only. XcodeGen's target defaults would otherwise add iPad, and Apple then wants every orientation.
+        TARGETED_DEVICE_FAMILY: "1,2"   # iPhone and iPad (the wall dashboard). iPad supports every orientation, as Apple requires.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
   PlateShare:
@@ -80,7 +89,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.randomedp.plate.share
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
 schemes:
   Plate:
     build:

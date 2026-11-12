@@ -11,7 +11,9 @@ setup. This file holds the rules and how things fit together.
   TestFlight flow is copied from there.
 - **Plate** is an iPhone app: kitchen inventory, recipes (including ones imported from Instagram Reels and TikTok
   captions), suggestions and variations from what's in stock, a weekly meal plan for several people, macros, and
-  shopping lists that combine meals and pick the cheapest packs at Sainsbury's and Costco (UK).
+  shopping lists that combine meals and pick the cheapest packs at Sainsbury's and Costco (UK). It also has a
+  **home dashboard** (Home tab), built for an iPad on the wall of Ethan's flat: HomeKit controls, pinned Apple Music
+  albums and Plate tiles, and a wall mode that shows photos (or the playing album's cover) when idle.
 - **Ethan has no Mac.** Everything iOS is built, signed and uploaded on GitHub Actions. Don't suggest Xcode steps.
 
 ## 2. Hard rules
@@ -65,6 +67,15 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   Plate's own parsing stands.
 - **Planner** (`Planner.swift`): seeded, scores recipes by what's in stock, overlap with the rest of the week, expiring
   food, favourites, batch cooking and calorie targets. Locked entries stay put.
+- **Home dashboard**: `Dashboard.swift` in PlateCore holds the tiles, grid packing (`DashboardGrid.place`), idle
+  timing, night dimming, the slideshow order and `IdleArtwork.choose` (album cover while music plays, else the photo
+  album, else a clock); all tested in `DashboardTests.swift`. Saved as `household.dashboard`. The app side is
+  `App/Home/`: `HomeStore` (HomeKit), `MusicStore` and `PhotoStore` (MusicKit, PhotoKit), `DashboardView` (grid, edit
+  mode), `AddTileView`, `WallModeView` (full screen, screen kept on, idle artwork). Devices are still set up and
+  automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The weather tile
+  (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
+  legal link. The app needs the HomeKit and WeatherKit capabilities and the MusicKit and WeatherKit app services ticked on `com.randomedp.plate`; "Open in wall mode" is a per-device
+  `UserDefaults` setting. The app is iPhone (portrait) and iPad (every orientation, as Apple requires).
 - **Shopping** (`Shopping.swift`): needs from the chosen meals, minus the kitchen, then `bestPacks` (a small knapsack
   over pack sizes per store, with a waste penalty for perishables).
 

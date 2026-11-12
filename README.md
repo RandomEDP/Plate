@@ -25,6 +25,12 @@ shopping list that fills the gaps.
   the kitchen with "Put the shopping away". Prices are rough guides.
 - **Today:** calories and protein, carbs and fat against your targets, today's planned meals, what's about to go off,
   and a quick log of what you ate.
+- **Home:** a dashboard for the flat, made for an iPad on the wall. Tiles for HomeKit lights, plugs, locks, blinds,
+  thermostats, whole rooms and scenes, next to the weather (Apple Weather),  pinned Apple Music albums (tap to play, AirPlay to a speaker), a clock,
+  today's meals, the shopping list, food to use soon and notes. Edit to add, resize, drag and remove tiles. Wall mode
+  fills the screen and keeps it on; after a few minutes with nobody touching it, it shows the cover of the album that's
+  playing, or otherwise a photo album you pick, with the time, dimmed at night. A tap brings the dashboard back.
+  Accessories are still added and automated in Apple's Home app.
 
 ## AI
 
@@ -65,7 +71,8 @@ GitHub → Actions → iOS → Run workflow (TestFlight ticked). The build numbe
 ### One-time Apple setup
 
 1. **Register the app IDs.** developer.apple.com → Certificates, Identifiers & Profiles → Identifiers → + → App IDs → App:
-   - `com.randomedp.plate` (the app), with **App Groups** ticked
+   - `com.randomedp.plate` (the app), with **App Groups**, **HomeKit** and **WeatherKit** ticked under Capabilities, and
+     **MusicKit** and **WeatherKit** ticked under App Services
    - `com.randomedp.plate.share` (the share extension), with **App Groups** ticked
 2. **Register the app group.** Identifiers → + → App Groups → `group.com.randomedp.plate.share` (all lower case). Then on
    each of the two app IDs, App Groups → Configure → tick it.

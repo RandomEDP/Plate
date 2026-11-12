@@ -13,8 +13,10 @@ final class AppModel {
     /// A short message shown at the top of the screen ("Saved Chicken fajitas from TikTok").
     var banner: String?
     var selectedTab: Tab = .today
+    /// The full-screen dashboard for an iPad on the wall.
+    var showWall = false
 
-    enum Tab: Hashable { case today, kitchen, recipes, plan, shop }
+    enum Tab: Hashable { case today, kitchen, recipes, plan, shop, home }
 
     private var saveTask: Task<Void, Never>?
 
@@ -25,6 +27,9 @@ final class AppModel {
         } else {
             household = Household()
         }
+        // The iPad opens on the home dashboard. Any device opens straight into wall mode if that's turned on for it.
+        if UIDevice.current.userInterfaceIdiom == .pad { selectedTab = .home }
+        showWall = UserDefaults.standard.bool(forKey: "wallModeOnLaunch")
     }
 
     // MARK: Saving
