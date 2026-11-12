@@ -333,4 +333,43 @@ final class DashboardTests: XCTestCase {
         t.update(items: ["a"])
         XCTAssertEqual(t.next(), "a")
     }
+
+    // MARK: Adding the same tile more than once (Ethan, 12 November 2026: music tiles added twice, then resized
+    // and removed together)
+
+    func testAddingTheSameTileTwiceGivesTwoSeparateTiles() {
+        var d = HomeDashboard()
+        let row = DashboardTile(kind: .musicAlbum, title: "Music tile")
+        XCTAssertTrue(d.add(row))
+        XCTAssertTrue(d.add(row), "An empty music tile can be added again")
+        XCTAssertEqual(d.tiles.count, 2)
+        XCTAssertEqual(Set(d.tiles.map(\.id)).count, 2, "Each copy gets its own id")
+
+        d.resize(d.tiles[1].id, to: .small)
+        XCTAssertEqual(d.tiles.map(\.size), [.large, .small], "Resizing one leaves the other alone")
+
+        d.remove(d.tiles[0].id)
+        XCTAssertEqual(d.tiles.count, 1, "Removing one leaves the other")
+        XCTAssertEqual(d.tiles[0].size, .small)
+    }
+
+    func testRepeatableTilesAddedTwiceStaySeparate() {
+        var d = HomeDashboard()
+        let note = DashboardTile(kind: .note, title: "Note")
+        d.add(note); d.add(note); d.add(note)
+        XCTAssertEqual(Set(d.tiles.map(\.id)).count, 3)
+        d.shift(d.tiles[2].id, by: -1)
+        XCTAssertEqual(d.tiles.count, 3)
+    }
+
+    func testSavedDashboardsWithSharedIdsAreRepaired() throws {
+        let id = UUID()
+        var d = HomeDashboard()
+        d.tiles = [DashboardTile(id: id, kind: .musicAlbum, title: "One"), DashboardTile(id: id, kind: .musicAlbum, title: "Two"),
+                   DashboardTile(id: id, kind: .note, title: "Three")]
+        let back = try JSONDecoder().decode(HomeDashboard.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(back.tiles.map(\.title), ["One", "Two", "Three"], "Nothing is lost")
+        XCTAssertEqual(back.tiles[0].id, id, "The first keeps its id")
+        XCTAssertEqual(Set(back.tiles.map(\.id)).count, 3)
+    }
 }
