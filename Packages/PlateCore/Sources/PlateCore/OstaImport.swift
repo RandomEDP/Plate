@@ -129,6 +129,23 @@ public enum OstaImport {
         }
     }
 
+    /// What a page that gave no recipe was showing, so the app can say what went wrong.
+    public enum Miss: Equatable, Sendable {
+        /// Nothing drawn yet (still loading, or the connection dropped).
+        case empty
+        /// Not a recipe page: Osta's home page or a "get the app" page, which is where a private or removed recipe lands.
+        case notARecipe
+        /// A recipe page, but Plate couldn't pick out at least two ingredients from it.
+        case unreadable
+    }
+
+    public static func miss(_ page: Page) -> Miss {
+        if page.text.trimmingCharacters(in: .whitespacesAndNewlines).count < 20 { return .empty }
+        let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !isRecipePage(page) || genericTitles.contains(title) { return .notARecipe }
+        return .unreadable
+    }
+
     /// Turns the text of an Osta recipe page into recipe text. Nil when the page hasn't got a recipe on it (still
     /// loading, a private recipe, Osta's home page, or a "get the app" page).
     public static func extract(_ page: Page) -> Extract? {

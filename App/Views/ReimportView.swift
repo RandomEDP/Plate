@@ -65,6 +65,9 @@ struct ReimportView: View {
                                 case .failed(let why):
                                     Text(row.oldName).lineLimit(1)
                                     Text(why).font(.caption).foregroundStyle(.red)
+                                    if let link = row.link {
+                                        Link(destination: link) { Label("Open", systemImage: "safari") }.font(.caption)
+                                    }
                                 case .noLink:
                                     Text(row.oldName).lineLimit(1).foregroundStyle(.secondary)
                                     Text("No link saved with it, so it can't be read again.").font(.caption).foregroundStyle(.secondary)

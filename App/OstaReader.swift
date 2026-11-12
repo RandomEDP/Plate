@@ -7,14 +7,18 @@ import WebKit
 @MainActor
 final class OstaReader {
     enum Failure: LocalizedError {
-        case noRecipe
+        case noRecipe(OstaImport.Miss)
         case noRecipesInFolder
         case loading(String)
 
         var errorDescription: String? {
             switch self {
-            case .noRecipe:
-                return "Osta's page didn't show a recipe. Open the link in Safari to check it works, then try again."
+            case .noRecipe(.notARecipe):
+                return "Osta showed its home page, not this recipe, so it's private or has been removed. Tap Open to check in Safari."
+            case .noRecipe(.unreadable):
+                return "Osta showed the recipe, but Plate couldn't pick out its ingredients. Tap Open, and send a screenshot of the page so the reader can be fixed."
+            case .noRecipe(.empty):
+                return "Osta's page didn't load in 20 seconds. Check your connection and try again."
             case .noRecipesInFolder:
                 return "Osta's folder page didn't list any recipes (it may only open in the Osta app). In Osta, open each recipe, tap Share → Copy, and paste the links here instead."
             case .loading(let m):
@@ -50,8 +54,9 @@ final class OstaReader {
             if let found = OstaImport.extract(page), page.text == lastText, tick >= 3 { return found }
             lastText = page.text
         }
-        if let page = await reader.page(), let found = OstaImport.extract(page) { return found }
-        throw Failure.noRecipe
+        guard let page = await reader.page() else { throw Failure.noRecipe(.empty) }
+        if let found = OstaImport.extract(page) { return found }
+        throw Failure.noRecipe(OstaImport.miss(page))
     }
 
     /// Reads a shared folder page and gives the links of the recipes in it, scrolling so it loads them all.
