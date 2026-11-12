@@ -334,7 +334,7 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        tiles = try c.decodeIfPresent([DashboardTile].self, forKey: .tiles) ?? []
+        tiles = HomeDashboard.withUniqueIds(try c.decodeIfPresent([DashboardTile].self, forKey: .tiles) ?? [])
         idle = try c.decodeIfPresent(IdleSettings.self, forKey: .idle) ?? IdleSettings()
         style = c.value(.style, default: DashboardStyle())
         pages = c.value(.pages, default: [])
@@ -345,6 +345,17 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
         schedules = c.value(.schedules, default: [])
         activity = c.value(.activity, default: [])
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+    }
+
+    /// Gives any tile that shares its id with an earlier one a fresh id. Builds before 49 could add the same tile twice
+    /// with one id (tapping + again in the add list), which made the copies resize and disappear together.
+    static func withUniqueIds(_ tiles: [DashboardTile]) -> [DashboardTile] {
+        var seen = Set<UUID>()
+        return tiles.map { t in
+            var t = t
+            if !seen.insert(t.id).inserted { t.id = UUID() }
+            return t
+        }
     }
 
     /// The tiles this version of Plate can draw.
@@ -360,6 +371,9 @@ public struct HomeDashboard: Codable, Hashable, Sendable {
     public mutating func add(_ tile: DashboardTile) -> Bool {
         // A music or photo tile added empty (to be chosen in its editor) never counts as a duplicate.
         if tile.kind.canRepeat || (tile.kind.needsRef && tile.ref == nil) || !contains(tile.kind, ref: tile.ref) {
+            var tile = tile
+            // Every tile needs its own id, or removing, resizing or moving one acts on all the copies at once.
+            if tiles.contains(where: { $0.id == tile.id }) { tile.id = UUID() }
             tiles.append(tile)
             updatedAt = Date()
             return true

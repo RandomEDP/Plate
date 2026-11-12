@@ -75,6 +75,8 @@ private struct AddRow: View {
                 }
             } else {
                 var t = tile
+                // A fresh id every tap: this row can stay on screen and be tapped again to add another.
+                t.id = UUID()
                 t.pageId = page
                 if t.kind != .folder { t.folderId = folder }
                 // The description under the row is for choosing; it isn't shown on these tiles.
