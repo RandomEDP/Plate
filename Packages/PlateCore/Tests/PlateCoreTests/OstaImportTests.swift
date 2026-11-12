@@ -31,7 +31,14 @@ final class OstaImportTests: XCTestCase {
         ]
         XCTAssertEqual(OstaImport.recipeLinks(in: found).map(\.absoluteString), [
             "https://ostarecipes.com/s/recipes/AAAAAAAAAA",
+        ], "Ids in the page's code aren't used when the page has real recipe links")
+    }
+
+    func testFolderPageWithoutLinksFallsBackToIdsInItsCode() {
+        let found = ["https://ostarecipes.com/", "recipes/BBBBBBBBBB", "/recipe/CCCCCCCCCC?x=1", "recipes/BBBBBBBBBB"]
+        XCTAssertEqual(OstaImport.recipeLinks(in: found).map(\.absoluteString), [
             "https://ostarecipes.com/s/recipes/BBBBBBBBBB",
+            "https://ostarecipes.com/s/recipes/CCCCCCCCCC",
         ])
     }
 
@@ -136,6 +143,7 @@ final class OstaImportTests: XCTestCase {
 
     func testSaysWhatAPageWithNoRecipeWasShowing() {
         XCTAssertEqual(OstaImport.miss(.init(title: "", text: "")), .empty)
+        XCTAssertEqual(OstaImport.miss(.init(title: "", text: "osta\nLog in\nJoin for free\nRecipe not found\nBack to Home")), .notFound)
         XCTAssertEqual(OstaImport.miss(.init(title: "Osta Recipes", text: "Save recipes from anywhere\nGet the app\nJoin 100,000 home cooks")), .notARecipe)
         XCTAssertEqual(OstaImport.miss(.init(title: "Summer favourite", text: "Save this recipe\nPrep 10 mins\nA lovely summer favourite")), .unreadable)
     }

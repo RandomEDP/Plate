@@ -17,6 +17,8 @@ final class OstaReader {
                 return "Osta showed its home page, not this recipe, so it's private or has been removed. Tap Open to check in Safari."
             case .noRecipe(.unreadable):
                 return "Osta showed the recipe, but Plate couldn't pick out its ingredients. Tap Open, and send a screenshot of the page so the reader can be fixed."
+            case .noRecipe(.notFound):
+                return "Osta says \"Recipe not found\" at this link. In the Osta app, open the recipe, tap Share, and import that link instead."
             case .noRecipe(.empty):
                 return "Osta's page didn't load in 20 seconds. Check your connection and try again."
             case .noRecipesInFolder:

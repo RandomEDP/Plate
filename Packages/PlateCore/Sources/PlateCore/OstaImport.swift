@@ -34,21 +34,23 @@ public enum OstaImport {
         URL(string: "https://ostarecipes.com/s/recipes/\(id)")!
     }
 
-    /// Recipe links found on a folder page: from its links, or from "recipes/ID" anywhere in the page's code.
+    /// Recipe links found on a folder page. The page's own links come first: when it has any, they're the only ones
+    /// used, because "recipes/ID" in the page's code also matches ids that aren't share links (Ethan's import, 12
+    /// November 2026, saved links that open Osta's "Recipe not found"). The code is only searched when the page has no
+    /// recipe links at all.
     public static func recipeLinks(in found: [String]) -> [URL] {
-        var out: [URL] = []
-        var seen = Set<String>()
+        var linked: [String] = []
+        var inCode: [String] = []
         let re = try? NSRegularExpression(pattern: #"recipes?/([A-Za-z0-9_-]{8,40})"#)
         for s in found {
-            var id: String?
             if let u = URL(string: s), case .recipe(let rid)? = kind(of: u) {
-                id = rid
+                linked.append(rid)
             } else if let re, let m = re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) {
-                id = (s as NSString).substring(with: m.range(at: 1))
+                inCode.append((s as NSString).substring(with: m.range(at: 1)))
             }
-            if let id, seen.insert(id).inserted { out.append(recipeURL(id: id)) }
         }
-        return out
+        var seen = Set<String>()
+        return (linked.isEmpty ? inCode : linked).filter { seen.insert($0).inserted }.map(recipeURL(id:))
     }
 
     /// The page as the web view saw it.
@@ -133,6 +135,8 @@ public enum OstaImport {
     public enum Miss: Equatable, Sendable {
         /// Nothing drawn yet (still loading, or the connection dropped).
         case empty
+        /// Osta's "Recipe not found": nothing is shared at this link.
+        case notFound
         /// Not a recipe page: Osta's home page or a "get the app" page, which is where a private or removed recipe lands.
         case notARecipe
         /// A recipe page, but Plate couldn't pick out at least two ingredients from it.
@@ -141,6 +145,7 @@ public enum OstaImport {
 
     public static func miss(_ page: Page) -> Miss {
         if page.text.trimmingCharacters(in: .whitespacesAndNewlines).count < 20 { return .empty }
+        if page.text.lowercased().contains("recipe not found") { return .notFound }
         let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !isRecipePage(page) || genericTitles.contains(title) { return .notARecipe }
         return .unreadable
