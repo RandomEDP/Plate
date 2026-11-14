@@ -7,6 +7,10 @@ enum CaptionFetcher {
         case notALink
         case unsupported
         case noCaption(SocialImport.Platform)
+        /// The post has no caption at all, so the recipe is only in the video.
+        case emptyCaption(SocialImport.Platform)
+        /// The site said the post is private or gone.
+        case unavailable(SocialImport.Platform)
         case network(String)
 
         var errorDescription: String? {
@@ -17,7 +21,13 @@ enum CaptionFetcher {
                 return "Plate can read Instagram and TikTok links. For anything else, paste the recipe text."
             case .noCaption(let p):
                 let app = p == .instagram ? "Instagram" : "TikTok"
-                return "\(app) didn't share the caption for this post (it may be private). Open the post in \(app), tap the caption to expand it, copy it and paste it here."
+                return "Plate couldn't read this post's caption from \(app) just now. Try again in a minute. If it still won't come through, open the post in \(app), tap the caption to expand it, copy it and paste it here."
+            case .emptyCaption(let p):
+                let app = p == .instagram ? "Instagram" : "TikTok"
+                return "This \(app) post has no caption, so the recipe must be in the video. Save a screen recording of it, then use Import → From a video."
+            case .unavailable(let p):
+                let app = p == .instagram ? "Instagram" : "TikTok"
+                return "\(app) says this post is private or has been taken down, so Plate can't read it. If you can see it in \(app), copy the caption and paste it here."
             case .network(let m):
                 return "Couldn't reach the internet to read the post (\(m)). Check your connection, or paste the caption instead."
             }
@@ -62,11 +72,83 @@ enum CaptionFetcher {
     static let browserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
     static let previewAgent = "facebookexternalhit/1.1"
 
+    /// TikTok: share links (vm.tiktok.com/…) are followed to the post first, because oEmbed often can't read them.
+    /// Then oEmbed, then the post's own page. Only a clear answer from TikTok is reported as private or captionless.
     static func tiktok(_ url: URL) async throws -> SocialImport.Caption {
-        guard let oembed = SocialImport.tiktokOEmbedURL(for: url) else { throw Failure.noCaption(.tiktok) }
-        let data = try await get(oembed, userAgent: browserAgent)
-        guard let caption = SocialImport.captionFromTikTokOEmbed(data) else { throw Failure.noCaption(.tiktok) }
-        return caption
+        var post = SocialImport.tiktokPostURL(url)
+        var networkError: Failure?
+        if post == nil {
+            do {
+                post = try await resolveTikTok(url)
+            } catch let f as Failure {
+                networkError = f
+            }
+        }
+        var heard: [SocialImport.TikTokRead] = []
+        // oEmbed with the plain post address, then the link as shared in case TikTok prefers that.
+        var candidates: [URL] = []
+        for u in [post, url].compactMap({ $0 }) where !candidates.contains(u) { candidates.append(u) }
+        for candidate in candidates {
+            guard let oembed = SocialImport.tiktokOEmbedURL(for: candidate) else { continue }
+            do {
+                let read = SocialImport.readTikTokOEmbed(try await getAnyStatus(oembed, userAgent: browserAgent))
+                if case .caption(let c) = read { return c }
+                heard.append(read)
+            } catch let f as Failure {
+                networkError = f
+            }
+        }
+        // The post page itself, as a phone browser and then as a link preview sees it.
+        if let page = post ?? (networkError == nil ? url : nil) {
+            for agent in [browserAgent, previewAgent] {
+                do {
+                    let data = try await get(page, userAgent: agent)
+                    let read = SocialImport.readTikTokPage(String(decoding: data, as: UTF8.self))
+                    if case .caption(let c) = read { return c }
+                    heard.append(read)
+                } catch let f as Failure {
+                    networkError = f
+                }
+            }
+        }
+        if heard.contains(where: { if case .noCaption = $0 { return true } else { return false } }) {
+            throw Failure.emptyCaption(.tiktok)
+        }
+        if heard.contains(.unavailable) { throw Failure.unavailable(.tiktok) }
+        if heard.isEmpty, let networkError { throw networkError }
+        throw Failure.noCaption(.tiktok)
+    }
+
+    /// Follows a TikTok share link to the post it points at.
+    static func resolveTikTok(_ url: URL) async throws -> URL? {
+        var req = URLRequest(url: url)
+        req.setValue(browserAgent, forHTTPHeaderField: "User-Agent")
+        let result: (Data, URLResponse)
+        do {
+            result = try await session.data(for: req)
+        } catch {
+            throw Failure.network(error.localizedDescription)
+        }
+        let (data, response) = result
+        if let final = response.url, let post = SocialImport.tiktokPostURL(final) { return post }
+        // Some redirects land on a page that names the post only in its canonical link.
+        let html = String(decoding: data, as: UTF8.self)
+        for key in ["og:url"] {
+            if let u = SocialImport.metaContent(html, key: key).flatMap(URL.init(string:)),
+               let post = SocialImport.tiktokPostURL(u) { return post }
+        }
+        return nil
+    }
+
+    /// Like `get`, but an error status still returns the body (oEmbed explains itself in JSON).
+    static func getAnyStatus(_ url: URL, userAgent: String) async throws -> Data {
+        var req = URLRequest(url: url)
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        do {
+            return try await session.data(for: req).0
+        } catch {
+            throw Failure.network(error.localizedDescription)
+        }
     }
 
     static func instagram(_ url: URL) async throws -> SocialImport.Caption {

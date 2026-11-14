@@ -95,9 +95,134 @@ public enum SocialImport {
     }
 
     public static func captionFromTikTokOEmbed(_ data: Data) -> Caption? {
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let title = obj["title"] as? String, !title.isEmpty else { return nil }
-        return Caption(text: title, author: obj["author_name"] as? String, thumbnail: thumbnailFromTikTokOEmbed(data))
+        if case .caption(let c) = readTikTokOEmbed(data) { return c }
+        return nil
+    }
+
+    /// What TikTok told us about a post.
+    public enum TikTokRead: Equatable, Sendable {
+        case caption(Caption)
+        /// The post is there but has no caption: the recipe can only be in the video.
+        case noCaption(author: String?)
+        /// TikTok says the post is private, removed or doesn't exist.
+        case unavailable
+        /// Nothing usable (a blocked request, a changed page): worth trying another way.
+        case unreadable
+    }
+
+    /// Reads TikTok's oEmbed answer. Its "title" is the caption; an error answer has a code or message instead.
+    public static func readTikTokOEmbed(_ data: Data) -> TikTokRead {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unreadable }
+        let author = (obj["author_name"] as? String) ?? (obj["author_unique_id"] as? String)
+        if let title = obj["title"] as? String {
+            let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? .noCaption(author: author)
+                : .caption(Caption(text: text, author: author, thumbnail: thumbnailFromTikTokOEmbed(data)))
+        }
+        // {"code":400,"message":"Something went wrong","status_msg":"..."}: oEmbed can't say why, so try the page.
+        return .unreadable
+    }
+
+    /// True for TikTok's share links (vm.tiktok.com/ZN..., vt.tiktok.com/..., tiktok.com/t/...), which only redirect
+    /// to the real post. TikTok's oEmbed often can't read these, so Plate follows the redirect first.
+    public static func isTikTokShortLink(_ url: URL) -> Bool {
+        let host = (url.host ?? "").lowercased()
+        if host == "vm.tiktok.com" || host == "vt.tiktok.com" { return true }
+        return platform(of: url) == .tiktok && url.path.lowercased().hasPrefix("/t/")
+    }
+
+    /// The post's number from a TikTok link (/@user/video/123, /@user/photo/123, m.tiktok.com/v/123.html).
+    public static func tiktokVideoID(_ url: URL) -> String? {
+        let parts = url.path.split(separator: "/").map(String.init)
+        for (i, p) in parts.enumerated() where ["video", "photo", "v"].contains(p) && i + 1 < parts.count {
+            let id = parts[i + 1].replacingOccurrences(of: ".html", with: "")
+            if !id.isEmpty, id.allSatisfy(\.isNumber) { return id }
+        }
+        if let item = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "item_id" || $0.name == "share_item_id" })?.value,
+           !item.isEmpty, item.allSatisfy(\.isNumber) { return item }
+        return nil
+    }
+
+    /// The plain post address (https://www.tiktok.com/@user/video/123), without the tracking bits a share link
+    /// redirects to. Nil when the link doesn't name a post.
+    public static func tiktokPostURL(_ url: URL) -> URL? {
+        guard platform(of: url) == .tiktok, let id = tiktokVideoID(url) else { return nil }
+        let parts = url.path.split(separator: "/").map(String.init)
+        let user = parts.first(where: { $0.hasPrefix("@") && $0.count > 1 })
+        let kind = parts.contains("photo") ? "photo" : "video"
+        return URL(string: "https://www.tiktok.com/\(user ?? "@")/\(kind)/\(id)")
+    }
+
+    /// Reads a TikTok post page: the data it carries for its own scripts (the caption is "desc"), else the page's
+    /// description tags ("… TikTok video from Sam (@sam): "caption". original sound").
+    public static func readTikTokPage(_ html: String) -> TikTokRead {
+        for id in ["__UNIVERSAL_DATA_FOR_REHYDRATION__", "SIGI_STATE", "__NEXT_DATA__"] {
+            guard let json = scriptJSON(html, id: id) else { continue }
+            if let detail = find("webapp.video-detail", in: json) as? [String: Any] {
+                let code = (detail["statusCode"] as? Int) ?? (detail["statusCode"] as? NSNumber)?.intValue ?? 0
+                if code != 0, find("itemStruct", in: detail) == nil { return .unavailable }
+            }
+            if let item = (find("itemStruct", in: json) as? [String: Any]) ?? firstItem(in: json),
+               let desc = item["desc"] as? String {
+                let author = (item["author"] as? [String: Any]).flatMap { ($0["nickname"] as? String) ?? ($0["uniqueId"] as? String) }
+                    ?? item["author"] as? String
+                let text = desc.trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? .noCaption(author: author)
+                    : .caption(Caption(text: text, author: author, thumbnail: pageImage(html)))
+            }
+        }
+        for key in ["og:description", "description", "twitter:description"] {
+            guard let content = metaContent(html, key: key) else { continue }
+            var text = decodeEntities(content)
+            var author: String?
+            if let from = text.range(of: "video from "), let colon = text.range(of: ": ", range: from.upperBound..<text.endIndex) {
+                author = String(text[from.upperBound..<colon.lowerBound]).components(separatedBy: " (@").first
+                text = String(text[colon.upperBound...])
+                if text.hasPrefix("\"") { text.removeFirst() }
+                if let lastQuote = text.range(of: "\"", options: .backwards) { text = String(text[..<lastQuote.lowerBound]) }
+            }
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // TikTok's own blurb on pages it won't show ("Make Your Day", "TikTok - trends start here").
+            if text.count > 10, !text.lowercased().contains("trends start here"), !text.lowercased().hasPrefix("tiktok -") {
+                return .caption(Caption(text: text, author: author, thumbnail: pageImage(html)))
+            }
+        }
+        return .unreadable
+    }
+
+    /// The link-preview picture of a page (a TikTok post's cover).
+    static func pageImage(_ html: String) -> URL? {
+        for key in ["og:image", "twitter:image"] {
+            if let content = metaContent(html, key: key), let url = webImage(decodeEntities(content)) { return url }
+        }
+        return nil
+    }
+
+    static func scriptJSON(_ html: String, id: String) -> Any? {
+        guard let idRange = html.range(of: "id=\"\(id)\""),
+              let open = html.range(of: ">", range: idRange.upperBound..<html.endIndex),
+              let close = html.range(of: "</script>", range: open.upperBound..<html.endIndex) else { return nil }
+        let body = html[open.upperBound..<close.lowerBound]
+        return try? JSONSerialization.jsonObject(with: Data(body.utf8))
+    }
+
+    /// The first value under `key`, anywhere in some decoded JSON.
+    static func find(_ key: String, in json: Any, depth: Int = 0) -> Any? {
+        guard depth < 12 else { return nil }
+        if let d = json as? [String: Any] {
+            if let v = d[key] { return v }
+            for v in d.values { if let f = find(key, in: v, depth: depth + 1) { return f } }
+        } else if let a = json as? [Any] {
+            for v in a { if let f = find(key, in: v, depth: depth + 1) { return f } }
+        }
+        return nil
+    }
+
+    /// The older page layout: "ItemModule": { "123": { "desc": ..., "author": "sam" } }.
+    static func firstItem(in json: Any) -> [String: Any]? {
+        guard let module = find("ItemModule", in: json) as? [String: Any] else { return nil }
+        return module.values.compactMap { $0 as? [String: Any] }.first { $0["desc"] != nil }
     }
 
     /// Reads the caption from an Instagram embed page, or failing that from the page's description tags.
@@ -134,7 +259,7 @@ public enum SocialImport {
         return nil
     }
 
-    static func metaContent(_ html: String, key: String) -> String? {
+    public static func metaContent(_ html: String, key: String) -> String? {
         let patterns = [
             #"<meta[^>]+(?:property|name)=["']\#(key)["'][^>]+content=["']([^"']*)["']"#,
             #"<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']\#(key)["']"#,
