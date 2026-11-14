@@ -62,7 +62,9 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   two foods ("50g garlic and scallions") into two ingredients when a recipe is built, from Plate's parser or the AI. `UnitStandard` then puts each in the unit
   you'd count it in (garlic in cloves, onions and eggs by the piece, liquids in ml, no oz or cups), noting what the recipe
   said; weighed foods like chicken stay as written. Saved recipes were converted once (`standardiseSavedRecipeUnitsOnce`).
-- **Social import:** `SocialImport` (pure) plus `Shared/CaptionFetcher.swift`: TikTok's oEmbed `title` is the caption;
+- **Social import:** `SocialImport` (pure) plus `Shared/CaptionFetcher.swift`: TikTok's oEmbed `title` is the caption, but
+  oEmbed often can't read share links (vm.tiktok.com), so they're followed to the post first and the post page's
+  `desc` (`readTikTokPage`) is the fallback; "private" is only said when TikTok says so (`TikTokImportTests`);
   Instagram is read from the post's `/embed/captioned/` page, falling back to the `og:description` meta tag. Neither
   needs a login; a private post can't be read, and the app says to paste the caption instead.
 - **Osta import:** Osta (ostarecipes.com) has no export, and its share pages are drawn by JavaScript. `App/OstaReader.swift`
