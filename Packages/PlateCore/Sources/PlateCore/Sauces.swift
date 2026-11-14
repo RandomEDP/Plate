@@ -43,10 +43,8 @@ public enum Sauces {
 
     /// Whether a recipe's name says it's a sauce, dip or dressing rather than a dish that comes with one.
     public static func looksLike(name: String) -> Bool {
-        var words = name.lowercased()
-            .map { $0.isLetter ? $0 : " " }
-            .split(separator: " ", omittingEmptySubsequences: true)
-            .map(String.init)
+        let letters = String(name.lowercased().map { (c: Character) -> Character in c.isLetter ? c : " " })
+        var words: [String] = letters.split(separator: " ").map { String($0) }
         while let last = words.last, filler.contains(last) { words.removeLast() }
         guard !words.isEmpty, !words.contains(where: { connectors.contains($0) }) else { return false }
         let tails = [3, 2, 1].filter { words.count >= $0 }.map { words.suffix($0).joined(separator: " ") }
