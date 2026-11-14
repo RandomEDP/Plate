@@ -1,3 +1,4 @@
+import PhotosUI
 import PlateCore
 import SwiftUI
 
@@ -17,7 +18,7 @@ struct RecipesView: View {
     @State private var waiting = false
 
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All", ready = "Can make", favourites = "Favourites", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
+        case all = "All", ready = "Can make", favourites = "Favourites", topRated = "Top rated", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
         var id: String { rawValue }
     }
 
@@ -31,6 +32,7 @@ struct RecipesView: View {
             case .all: return true
             case .ready: return m.canCookNow || m.missingCount <= 1
             case .favourites: return r.isFavourite
+            case .topRated: return (r.rating ?? 0) >= 4
             case .breakfast: return r.mealTypes.contains(.breakfast)
             case .lunch: return r.mealTypes.contains(.lunch)
             case .dinner: return r.mealTypes.contains(.dinner)
@@ -83,7 +85,9 @@ struct RecipesView: View {
                 }
                 Section {
                     if matches.isEmpty {
-                        Text(filter == .ready ? "Nothing you can make right now. Add more to your kitchen, or try Ideas." : "No recipes here yet.")
+                        Text(filter == .ready ? "Nothing you can make right now. Add more to your kitchen, or try Ideas."
+                             : filter == .topRated ? "Nothing rated four stars or more yet. Open a recipe you've made and tap its stars."
+                             : "No recipes here yet.")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(matches) { m in
@@ -196,6 +200,10 @@ struct RecipeDetailView: View {
     @State private var addingToPlan = false
     @State private var editing = false
     @State private var confirmDelete = false
+    @State private var choosingPhoto = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var takingPhoto = false
+    @State private var showingPhoto = false
 
     /// The latest saved copy (favourite, edits), falling back to what was passed in (e.g. an unsaved variation).
     var current: Recipe { model.recipe(recipe.id) ?? recipe }
@@ -207,10 +215,31 @@ struct RecipeDetailView: View {
         let match = Suggestions.evaluate(r, servings: s, stock: model.stock)
         let missingKeys = Set((match.missing + match.short).map(\.key))
         List {
+            if let photo = r.photo, DishPhotos.image(photo, side: 400) != nil {
+                Section {
+                    // The colour underneath gives the row its size; the picture fills it and is cropped to fit.
+                    Color.clear
+                        .frame(maxWidth: .infinity).frame(height: 240)
+                        .overlay { DishPhotoView(photo: photo, side: 400) }
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(alignment: .bottomTrailing) { if isSaved { photoMenu(r, has: true).padding(10) } }
+                        .contentShape(Rectangle())
+                        .onTapGesture { showingPhoto = true }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel(photo.origin == .own ? "Your photo of the dish" : "Picture of the dish")
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                } footer: {
+                    if isSaved, photo.origin != .own {
+                        Text(photo.origin == .video ? "A still from the video. Made it? Swap in your own photo with the camera button."
+                             : "The post's cover picture. Made it? Swap in your own photo with the camera button.")
+                    }
+                }
+            }
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top) {
-                        RecipeThumb(recipe: r, size: 64)
+                        if r.photo == nil { RecipeThumb(recipe: r, size: 64) }
                         VStack(alignment: .leading, spacing: 4) {
                             Text(r.name).font(.title2.weight(.bold))
                             if !r.summary.isEmpty { Text(r.summary).font(.subheadline).foregroundStyle(.secondary) }
@@ -237,8 +266,20 @@ struct RecipeDetailView: View {
                     Button { cooking = true } label: { Label("Cook this", systemImage: "frying.pan") }
                     Button { addingToList = true } label: { Label("Add to a shopping list", systemImage: "cart.badge.plus") }
                     Button { addingToPlan = true } label: { Label("Add to the plan", systemImage: "calendar.badge.plus") }
+                    if r.photo == nil { photoMenu(r, has: false) }
                 } else {
                     Button { model.save(r); model.banner = "Saved \(r.name)" } label: { Label("Save this recipe", systemImage: "square.and.arrow.down") }
+                }
+            }
+            if isSaved {
+                Section {
+                    HStack {
+                        StarRating(rating: r.rating) { model.rate(r, stars: $0) }
+                        Spacer()
+                        Text(r.rating == nil ? "Tap to rate" : "Your rating").font(.caption).foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("The plan picks dishes you rate four or five stars more often, and ones you rate one or two less.")
                 }
             }
             Section {
@@ -296,7 +337,16 @@ struct RecipeDetailView: View {
                         .accessibilityLabel(r.isFavourite ? "Unfavourite" : "Favourite")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: shareText(r)) { Image(systemName: "square.and.arrow.up") }
+                    Menu {
+                        // The link carries the whole recipe and opens it in Plate on the other person's phone.
+                        if let message = RecipeShare.message(for: r) {
+                            ShareLink(item: message) { Label("Send a link that opens in Plate", systemImage: "link") }
+                        }
+                        ShareLink(item: shareText(r)) { Label("Send as text", systemImage: "text.alignleft") }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share")
                 }
             }
         }
@@ -304,9 +354,62 @@ struct RecipeDetailView: View {
         .sheet(isPresented: $addingToList) { AddToListSheet(recipe: r, servings: s) }
         .sheet(isPresented: $addingToPlan) { AddToPlanSheet(recipe: r, servings: s) }
         .sheet(isPresented: $editing) { RecipeEditor(recipe: r) { model.save($0) } }
+        .photosPicker(isPresented: $choosingPhoto, selection: $photoItem, matching: .images)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) { usePhoto(data, for: r) }
+                else { model.banner = "Couldn't open that photo. Try another." }
+                photoItem = nil
+            }
+        }
+        .fullScreenCover(isPresented: $takingPhoto) {
+            CameraPicker { usePhoto($0, for: r) }.ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingPhoto) {
+            if let photo = r.photo, let image = UIImage(contentsOfFile: DishPhotos.url(photo).path) {
+                NavigationStack {
+                    Image(uiImage: image).resizable().scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black)
+                        .navigationTitle(r.name)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingPhoto = false } } }
+                }
+            }
+        }
         .confirmationDialog("Remove \(r.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { model.delete(r); dismiss() }
         }
+    }
+
+    /// Take a photo, choose one, or take the picture off. On the picture it's a round camera button; without one
+    /// it's a row in the list.
+    @ViewBuilder func photoMenu(_ r: Recipe, has: Bool) -> some View {
+        Menu {
+            if CameraPicker.available {
+                Button { takingPhoto = true } label: { Label("Take a photo", systemImage: "camera") }
+            }
+            Button { choosingPhoto = true } label: { Label("Choose from Photos", systemImage: "photo.on.rectangle") }
+            if has {
+                Button(role: .destructive) { model.removePhoto(for: r.id) } label: { Label("Remove the picture", systemImage: "trash") }
+            }
+        } label: {
+            if has {
+                Image(systemName: "camera.fill")
+                    .font(.body.weight(.semibold))
+                    .padding(10)
+                    .background(.thinMaterial, in: Circle())
+                    .accessibilityLabel(r.photo?.origin == .own ? "Change the photo" : "Use your own photo")
+            } else {
+                Label("Add a photo of the dish", systemImage: "camera")
+            }
+        }
+    }
+
+    func usePhoto(_ data: Data, for r: Recipe) {
+        if model.setPhoto(data, origin: .own, for: r.id) { model.banner = "That's the photo for \(r.name) now" }
+        else { model.banner = "Couldn't use that photo. Try another." }
     }
 
     func ingredientText(_ ing: RecipeIngredient, scale: Double) -> String {

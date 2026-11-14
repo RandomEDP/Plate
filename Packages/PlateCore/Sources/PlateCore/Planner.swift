@@ -115,6 +115,8 @@ public enum Planner {
         let usesExpiring = Double(foods.filter { expiring.contains($0) }.count)
         var s = match.coverage * 3 + overlap * 2 + usesExpiring * 1.5
         if r.isFavourite { s += 1 }
+        // Dishes you rated well come round more often; ones you didn't like, less.
+        if let stars = r.rating { s += Double(min(5, max(1, stars)) - 3) * 0.4 }
         if batch && r.mealPrepFriendly { s += 0.6 }
         if let target = kcalTarget, target > 0 {
             let kcal = Nutrition.perServing(r).kcal

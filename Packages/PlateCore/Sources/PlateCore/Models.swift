@@ -253,6 +253,11 @@ public struct Recipe: Codable, Hashable, Sendable, Identifiable {
     public var isFavourite: Bool
     /// Good for cooking in bulk and keeping in the fridge.
     public var mealPrepFriendly: Bool
+    /// Stars out of five, once you've made it. Nil until it's rated.
+    public var rating: Int?
+    /// The picture of the dish: a still from the video or the post's cover, until you add your own. The picture
+    /// itself is a file beside the household file; this says which.
+    public var photo: RecipePhoto?
     public var createdAt: Date
     public var updatedAt: Date
 

@@ -10,6 +10,9 @@ shopping list that fills the gaps.
   (soonest use-by first), so Plate knows what's running low before the next shop.
 - **Recipes:** about 40 built in, plus your own. Each recipe shows what you have in, what's missing, macros per
   portion and portions scaled for however many people.
+- **Dish photos, ratings and sharing:** a recipe read from a video gets a still of the finished dish (a post's
+  cover picture otherwise); swap in your own photo once you've made it, and give it one to five stars. Share sends a
+  link that opens the recipe in Plate on someone else's phone, or shows it in the browser if they haven't got Plate.
 - **Import from Instagram and TikTok:** paste a Reel or TikTok link (or the caption itself), or tap Share → Save to Plate
   straight from the video. Plate reads the recipe from the caption: ingredients, method, servings, and any macros the
   creator gave. Recipes → Import many takes a whole list of links (or several captions split by `---`) at once,

@@ -1,6 +1,7 @@
 import AVFoundation
 import PlateCore
 import Speech
+import UIKit
 import Vision
 
 /// Reads a recipe video on the phone: what's said (Apple's speech recognition, on the device where it can) and the
@@ -21,24 +22,48 @@ enum VideoReader {
         }
     }
 
-    /// The video's words, laid out for the recipe reader. `step` reports what it's doing ("Listening…").
-    static func read(_ url: URL, caption: String? = nil, step: @MainActor @escaping (String) -> Void) async throws -> String {
+    /// What a video gave: its words, laid out for the recipe reader, and a still of the finished dish.
+    struct Reading {
+        var text: String
+        var dish: FoundPhoto?
+    }
+
+    /// Reads the video. `step` reports what it's doing ("Listening…").
+    static func read(_ url: URL, caption: String? = nil, step: @MainActor @escaping (String) -> Void) async throws -> Reading {
         let asset = AVURLAsset(url: url)
         let duration: Double
         do { duration = try await asset.load(.duration).seconds } catch { throw Failure.unreadable(error.localizedDescription) }
         await step("Reading the text on screen…")
-        let frames = await screenText(asset, duration: duration)
+        let (frames, looks) = await screenText(asset, duration: duration)
         await step("Listening to the video…")
         let speech = (try? await transcribe(asset)) ?? ""
         let text = VideoText.combine(caption: caption, screen: frames, speech: speech)
         guard !text.isEmpty else { throw Failure.nothingFound }
-        return text
+        await step("Finding a picture of the dish…")
+        return Reading(text: text, dish: await dishStill(asset, from: looks, duration: duration))
+    }
+
+    // MARK: The dish's picture
+
+    /// A still of the finished dish: the best-looking frame near the end (see `DishFrame` in PlateCore), taken again
+    /// at a good size.
+    static func dishStill(_ asset: AVAsset, from looks: [DishFrame.Candidate], duration: Double) async -> FoundPhoto? {
+        guard let best = DishFrame.pick(looks, duration: duration) else { return nil }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1600, height: 1600)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.1, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.1, preferredTimescale: 600)
+        guard let image = try? await generator.image(at: CMTime(seconds: best.time, preferredTimescale: 600)).image,
+              let data = UIImage(cgImage: image).jpegData(compressionQuality: 0.85) else { return nil }
+        return FoundPhoto(data: data, origin: .video)
     }
 
     // MARK: Text on screen
 
-    static func screenText(_ asset: AVAsset, duration: Double) async -> [[String]] {
-        guard duration.isFinite, duration > 0 else { return [] }
+    /// The lines of text in each frame, and how each frame looks (for choosing the dish's picture).
+    static func screenText(_ asset: AVAsset, duration: Double) async -> ([[String]], [DishFrame.Candidate]) {
+        guard duration.isFinite, duration > 0 else { return ([], []) }
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 1080, height: 1080)
@@ -48,15 +73,25 @@ enum VideoReader {
         let count = min(150, max(1, Int(duration)))
         let times = (0..<count).map { CMTime(seconds: duration * (Double($0) + 0.5) / Double(count), preferredTimescale: 600) }
         var frames: [[String]] = []
+        var looks: [DishFrame.Candidate] = []
         for await result in generator.images(for: times) {
             guard let image = try? result.image else { continue }
-            frames.append(await Task.detached(priority: .userInitiated) { lines(in: image) }.value)
+            let time = result.requestedTime.seconds
+            let (lines, look) = await Task.detached(priority: .userInitiated) { () -> ([String], DishFrame.Candidate) in
+                let (lines, textArea) = text(in: image)
+                return (lines, DishFrame.Candidate(time: time, textArea: textArea, stats: DishPhotos.stats(of: image)))
+            }.value
+            frames.append(lines)
+            looks.append(look)
         }
-        return frames
+        return (frames, looks)
     }
 
     /// The lines of text in one frame, top to bottom.
-    static func lines(in image: CGImage) -> [String] {
+    static func lines(in image: CGImage) -> [String] { text(in: image).0 }
+
+    /// The lines of text in one frame, top to bottom, and how much of the frame the writing covers (0 to 1).
+    static func text(in image: CGImage) -> ([String], Double) {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -66,7 +101,8 @@ enum VideoReader {
             guard let best = obs.topCandidates(1).first, best.confidence >= 0.5 else { return nil }
             return (obs.boundingBox, best.string)
         }
-        return found.sorted { abs($0.0.midY - $1.0.midY) > 0.02 ? $0.0.midY > $1.0.midY : $0.0.minX < $1.0.minX }.map(\.1)
+        let area = found.reduce(0.0) { $0 + Double($1.0.width * $1.0.height) }
+        return (found.sorted { abs($0.0.midY - $1.0.midY) > 0.02 ? $0.0.midY > $1.0.midY : $0.0.minX < $1.0.minX }.map(\.1), min(1, area))
     }
 
     // MARK: Speech

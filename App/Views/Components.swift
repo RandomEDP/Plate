@@ -133,6 +133,10 @@ struct RecipeRow: View {
                 HStack(spacing: 8) {
                     if let match { MatchBadge(match: match) }
                     if let m = recipe.minutes { Label("\(m) min", systemImage: "clock").font(.caption).foregroundStyle(.secondary) }
+                    if let stars = recipe.rating {
+                        Label("\(stars)", systemImage: "star.fill").font(.caption).foregroundStyle(.secondary)
+                            .accessibilityLabel("Rated \(stars) out of 5")
+                    }
                     SourceIcon(source: recipe.source)
                 }
             }
@@ -160,11 +164,19 @@ struct RecipeThumb: View {
     var size: CGFloat = 46
 
     var body: some View {
-        let (emoji, color) = Self.look(recipe)
-        Text(emoji)
-            .font(.system(size: size * 0.5))
-            .frame(width: size, height: size)
-            .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: size * 0.26))
+        if let photo = recipe.photo, DishPhotos.image(photo, side: size) != nil {
+            // The dish's own picture, when it has one.
+            DishPhotoView(photo: photo, side: size)
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.26))
+                .accessibilityHidden(true)
+        } else {
+            let (emoji, color) = Self.look(recipe)
+            Text(emoji)
+                .font(.system(size: size * 0.5))
+                .frame(width: size, height: size)
+                .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: size * 0.26))
+        }
     }
 
     static func look(_ r: Recipe) -> (String, Color) {

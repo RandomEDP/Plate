@@ -25,6 +25,9 @@ extension Recipe {
         r.id = id
         r.isFavourite = isFavourite
         r.mealPrepFriendly = mealPrepFriendly || fresh.mealPrepFriendly
+        // Your rating and the dish's picture belong to you, not to the page it was read from.
+        r.rating = rating
+        r.photo = photo
         r.createdAt = createdAt
         r.updatedAt = Date()
         if r.source.url == nil { r.source = source }

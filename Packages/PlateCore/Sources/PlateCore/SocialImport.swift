@@ -59,12 +59,45 @@ public enum SocialImport {
     public struct Caption: Equatable, Sendable {
         public var text: String
         public var author: String?
+        /// The post's cover picture, when the page gave one.
+        public var thumbnail: URL? = nil
+    }
+
+    /// The cover picture's address from TikTok's oEmbed answer.
+    public static func thumbnailFromTikTokOEmbed(_ data: Data) -> URL? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let s = obj["thumbnail_url"] as? String else { return nil }
+        return webImage(s)
+    }
+
+    /// The cover picture's address from an Instagram page: the embed page's picture, or the link-preview picture.
+    public static func thumbnailFromInstagramHTML(_ html: String) -> URL? {
+        if let re = try? NSRegularExpression(pattern: #"<img[^>]+class=["'][^"']*EmbeddedMediaImage[^"']*["'][^>]*>"#, options: [.caseInsensitive]),
+           let m = re.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)), let r = Range(m.range, in: html) {
+            let tag = String(html[r])
+            if let src = try? NSRegularExpression(pattern: #"\ssrc=["']([^"']+)["']"#, options: [.caseInsensitive]),
+               let sm = src.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)), let sr = Range(sm.range(at: 1), in: tag),
+               let url = webImage(decodeEntities(String(tag[sr]))) {
+                return url
+            }
+        }
+        for key in ["og:image", "twitter:image"] {
+            if let content = metaContent(html, key: key), let url = webImage(decodeEntities(content)) { return url }
+        }
+        return nil
+    }
+
+    /// Only proper https addresses are fetched.
+    static func webImage(_ s: String) -> URL? {
+        guard let url = URL(string: s.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme?.lowercased() == "https",
+              url.host?.isEmpty == false else { return nil }
+        return url
     }
 
     public static func captionFromTikTokOEmbed(_ data: Data) -> Caption? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let title = obj["title"] as? String, !title.isEmpty else { return nil }
-        return Caption(text: title, author: obj["author_name"] as? String)
+        return Caption(text: title, author: obj["author_name"] as? String, thumbnail: thumbnailFromTikTokOEmbed(data))
     }
 
     /// Reads the caption from an Instagram embed page, or failing that from the page's description tags.
@@ -82,7 +115,7 @@ public enum SocialImport {
                 body.removeSubrange(body.startIndex..<close.upperBound)
             }
             let text = htmlToText(body)
-            if text.count > 10 { return Caption(text: text, author: author) }
+            if text.count > 10 { return Caption(text: text, author: author, thumbnail: thumbnailFromInstagramHTML(html)) }
         }
         // Full page: <meta property="og:description" content="123 likes, 4 comments - user on May 1, 2026: &quot;caption&quot;. ">
         for key in ["og:description", "description", "twitter:description"] {
@@ -95,7 +128,7 @@ public enum SocialImport {
                     text = String(text[colon.upperBound...])
                     if let lastQuote = text.range(of: "\"", options: .backwards) { text = String(text[..<lastQuote.lowerBound]) }
                 }
-                if text.count > 10 { return Caption(text: text, author: author) }
+                if text.count > 10 { return Caption(text: text, author: author, thumbnail: thumbnailFromInstagramHTML(html)) }
             }
         }
         return nil

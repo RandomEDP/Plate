@@ -17,6 +17,10 @@ final class AppModel {
     var selectedTab: Tab = .today
     /// The full-screen dashboard for an iPad on the wall.
     var showWall = false
+    /// A recipe that has just arrived as a Plate link, shown so it can be looked over and saved.
+    var arrived: Recipe?
+    /// Pictures found for recipes that haven't been saved yet (a video still, a post's cover), by recipe id.
+    @ObservationIgnored var foundPhotos: [UUID: FoundPhoto] = [:]
 
     enum Tab: Hashable { case today, kitchen, recipes, plan, shop, home }
 
@@ -34,6 +38,9 @@ final class AppModel {
         // The iPad opens on the home dashboard. Any device opens straight into wall mode if that's turned on for it.
         if UIDevice.current.userInterfaceIdiom == .pad { selectedTab = .home }
         showWall = UserDefaults.standard.bool(forKey: "wallModeOnLaunch")
+        // Pictures of dishes whose recipes have been deleted are cleared out.
+        let snapshot = household
+        Task.detached(priority: .utility) { DishPhotos.tidy(snapshot) }
     }
 
     // MARK: Saving
@@ -71,7 +78,7 @@ final class AppModel {
         let own = household.recipes.sorted { $0.createdAt > $1.createdAt }
         let builtIn = BuiltInRecipes.all.filter { !household.hiddenBuiltIns.contains($0.id) }
             .map { r -> Recipe in
-                var r = r
+                var r = household.dressed(r)
                 r.isFavourite = household.favouriteBuiltIns.contains(r.id)
                 return r
             }
@@ -80,7 +87,7 @@ final class AppModel {
 
     func recipe(_ id: UUID) -> Recipe? {
         household.recipes.first { $0.id == id } ?? BuiltInRecipes.all.first { $0.id == id }.map { r in
-            var r = r
+            var r = household.dressed(r)
             r.isFavourite = household.favouriteBuiltIns.contains(r.id)
             return r
         }
@@ -104,6 +111,8 @@ final class AppModel {
         } else {
             household.recipes.append(r)
         }
+        // A picture found while it was being imported (a still from the video, or the post's cover).
+        if let found = foundPhotos.removeValue(forKey: recipe.id) { setPhoto(found.data, origin: found.origin, for: r.id) }
     }
 
     func toggleFavourite(_ r: Recipe) {
@@ -326,6 +335,11 @@ final class AppModel {
             recipe.createdAt = item.savedAt
             household.recipes.append(recipe)
             names.append(recipe.name)
+            // The post's cover picture, as the dish's photo until there's a better one.
+            if let cover = item.thumbnail.flatMap(URL.init(string:)) {
+                let id = recipe.id
+                Task { await offerCover(cover, for: id) }
+            }
         }
         banner = names.count == 1 ? "Saved \(names[0])" : "Saved \(names.count) recipes"
     }

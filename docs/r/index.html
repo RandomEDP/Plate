@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta property="og:title" content="A recipe from Plate">
+<meta property="og:description" content="Tap to see the recipe, or open it in Plate.">
+<title>A recipe from Plate</title>
+<style>
+  :root { --bg: #f6f5f1; --card: #fff; --ink: #1c1c1e; --soft: #6b6b70; --accent: #2f7d4f; --line: #e6e4dd; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111113; --card: #1c1c1e; --ink: #f2f2f7; --soft: #a1a1a8; --accent: #5cc58a; --line: #2c2c2e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 4px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--soft); margin: 28px 0 8px; }
+  p { margin: 6px 0; }
+  .soft { color: var(--soft); }
+  .card { background: var(--card); border-radius: 14px; padding: 4px 16px; }
+  ul, ol { margin: 0; padding: 0; list-style: none; }
+  li { padding: 11px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  li:last-child { border-bottom: 0; }
+  ol { counter-reset: step; }
+  ol li { counter-increment: step; display: flex; gap: 12px; }
+  ol li::before { content: counter(step); font-weight: 700; color: var(--accent); min-width: 1.2em; }
+  .open { display: block; margin: 18px 0 6px; padding: 14px 16px; border-radius: 14px; background: var(--accent); color: #fff;
+          font-weight: 600; text-align: center; text-decoration: none; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <!-- The recipe is in the part of the address after the "#". Browsers never send that part to a website, so it is
+       only ever read here, on your own phone or computer. This page has no tracking and loads nothing else. -->
+  <div id="recipe" hidden>
+    <p class="soft">A recipe from Plate</p>
+    <h1 id="name"></h1>
+    <p id="summary" class="soft" hidden></p>
+    <p id="facts" class="soft"></p>
+    <a id="open" class="open" href="#">Open in Plate</a>
+    <p class="soft" style="font-size:14px">Got Plate on this phone? The button saves the recipe there. No Plate? It's all below.</p>
+    <h2>Ingredients</h2>
+    <div class="card"><ul id="ingredients"></ul></div>
+    <div id="method" hidden>
+      <h2>Method</h2>
+      <div class="card"><ol id="steps"></ol></div>
+    </div>
+    <p id="source" hidden style="margin-top:22px"><a id="sourceLink" rel="noopener noreferrer">Watch the original video</a></p>
+  </div>
+  <div id="problem" hidden>
+    <h1>This recipe link didn't work</h1>
+    <p>The link is damaged or was cut short on the way. Ask whoever sent it to send it again, and make sure the whole link comes across.</p>
+  </div>
+</main>
+<script>
+(function () {
+  function show(id) { document.getElementById(id).hidden = false; }
+  function fail() { show('problem'); }
+  var code = (location.hash || '').replace(/^#/, '');
+  if (!code) { fail(); return; }
+  var r;
+  try {
+    var b64 = code.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    var raw = atob(b64);
+    var bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    r = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+  } catch (e) { fail(); return; }
+  if (!r || typeof r.n !== 'string' || !Array.isArray(r.i)) { fail(); return; }
+
+  // Everything is put on the page as plain text, never as HTML.
+  document.title = r.n + ' · Plate';
+  document.getElementById('name').textContent = r.n;
+  if (typeof r.s === 'string' && r.s) { document.getElementById('summary').textContent = r.s; show('summary'); }
+  var facts = [];
+  if (typeof r.p === 'number') facts.push('Serves ' + r.p);
+  if (typeof r.t === 'number') facts.push(r.t + ' min');
+  if (Array.isArray(r.x) && r.x.length >= 2) facts.push(Math.round(r.x[0]) + ' kcal · ' + Math.round(r.x[1]) + ' g protein per portion');
+  document.getElementById('facts').textContent = facts.join(' · ');
+
+  var list = document.getElementById('ingredients');
+  r.i.forEach(function (item) {
+    var li = document.createElement('li');
+    li.textContent = String((item && (item.l || item.n)) || '');
+    list.appendChild(li);
+  });
+  if (Array.isArray(r.d) && r.d.length) {
+    var steps = document.getElementById('steps');
+    r.d.forEach(function (step) {
+      var li = document.createElement('li');
+      var span = document.createElement('span');
+      span.textContent = String(step);
+      li.appendChild(span);
+      steps.appendChild(li);
+    });
+    show('method');
+  }
+  // Only a proper web address becomes a link.
+  if (typeof r.u === 'string' && /^https:\/\//i.test(r.u)) {
+    document.getElementById('sourceLink').href = r.u;
+    show('source');
+  }
+  document.getElementById('open').href = 'plate://recipe#' + code;
+  show('recipe');
+})();
+</script>
+</body>
+</html>
