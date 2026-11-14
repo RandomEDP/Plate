@@ -13,6 +13,8 @@ struct BulkImportView: View {
 
     enum RowState: Equatable {
         case waiting, working, saved(String), failed(String), expanded(Int)
+        /// Read, but the same recipe is already saved (pasted text, or another post with the same recipe).
+        case alreadyHave(String)
     }
 
     struct Row: Identifiable {
@@ -37,6 +39,7 @@ struct BulkImportView: View {
     var savedCount: Int { rows.filter { if case .saved = $0.state { return true } else { return false } }.count }
     var failedCount: Int { rows.filter { if case .failed = $0.state { return true } else { return false } }.count }
     var waitingCount: Int { rows.filter { $0.state == .waiting }.count }
+    var repeatCount: Int { rows.filter { if case .alreadyHave = $0.state { return true } else { return false } }.count }
 
     var body: some View {
         NavigationStack {
@@ -68,7 +71,7 @@ struct BulkImportView: View {
                             .buttonStyle(.borderedProminent)
                             Button("Start again") { rows = []; alreadySaved = 0 }
                         } else {
-                            Text("Saved \(savedCount)\(failedCount > 0 ? ", \(failedCount) couldn't be read" : "").")
+                            Text("Saved \(savedCount)\(repeatCount > 0 ? ", \(repeatCount) you already had" : "")\(failedCount > 0 ? ", \(failedCount) couldn't be read" : "").")
                             Button("Done") { dismiss() }.buttonStyle(.borderedProminent)
                         }
                     } footer: {
@@ -88,6 +91,9 @@ struct BulkImportView: View {
                                     case .expanded(let n):
                                         Text(row.title)
                                         Text("Found \(n) new recipe\(n == 1 ? "" : "s") in it").font(.caption).foregroundStyle(.secondary)
+                                    case .alreadyHave(let name):
+                                        Text(row.title).lineLimit(1).foregroundStyle(.secondary)
+                                        Text("You already have this, as “\(name)”, so it was left out.").font(.caption).foregroundStyle(.secondary)
                                     case .failed(let why):
                                         Text(row.title).lineLimit(1)
                                         Text(why).font(.caption).foregroundStyle(.red)
@@ -113,6 +119,7 @@ struct BulkImportView: View {
         case .saved: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .expanded: Image(systemName: "folder.fill").foregroundStyle(.secondary)
+        case .alreadyHave: Image(systemName: "equal.circle.fill").foregroundStyle(.secondary)
         }
     }
 
@@ -170,6 +177,10 @@ struct BulkImportView: View {
                     throw AppModel.NoRecipe()
                 }
                 recipe = r
+            }
+            if let match = RecipeDuplicates.match(for: recipe, in: model.household.recipes) {
+                _ = model.takeFoundPhoto(for: recipe.id)
+                return .alreadyHave(match.recipe.name)
             }
             model.save(recipe)
             return .saved(recipe.name)

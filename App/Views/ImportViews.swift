@@ -54,9 +54,13 @@ extension AppModel {
             do {
                 let video = try await VideoReader.read(file) { _ in }
                 if let (recipe, _) = await readRecipe(caption: video.text, link: nil, author: nil, platform: nil) {
-                    offer(video.dish, for: recipe.id)
-                    save(recipe)
-                    banner = "Saved \(recipe.name) from a video"
+                    if let match = RecipeDuplicates.match(for: recipe, in: household.recipes) {
+                        banner = "You already have \(match.recipe.name), so the video wasn't saved again."
+                    } else {
+                        offer(video.dish, for: recipe.id)
+                        save(recipe)
+                        banner = "Saved \(recipe.name) from a video"
+                    }
                 } else {
                     banner = "Couldn't find a recipe in the video you shared. Type it in with Recipes → ✎."
                 }
@@ -209,14 +213,39 @@ struct ImportRecipeView: View {
                     if !r.steps.isEmpty {
                         Section("Method") { ForEach(Array(r.steps.enumerated()), id: \.offset) { Text("\($0.offset + 1). \($0.element)") } }
                     }
+                    if let match = RecipeDuplicates.match(for: r, in: model.household.recipes) {
+                        Section {
+                            Label(match.message, systemImage: "exclamationmark.circle.fill")
+                                .foregroundStyle(.orange)
+                            NavigationLink("Open “\(match.recipe.name)”") { RecipeDetailView(recipe: match.recipe) }
+                            Button {
+                                if model.household.replaceRecipe(match.recipe.id, with: r) {
+                                    model.offer(model.takeFoundPhoto(for: r.id), for: match.recipe.id)
+                                }
+                                model.banner = "Updated \(match.recipe.name)"
+                                dismiss()
+                            } label: { Label("Update it with this version", systemImage: "arrow.triangle.2.circlepath") }
+                        } header: { Text("Already saved") } footer: {
+                            Text("Updating keeps it in your meal plan, shopping lists and favourites.")
+                        }
+                    }
                     Section {
-                        Button {
-                            model.save(r)
-                            model.banner = "Saved \(r.name)"
-                            dismiss()
-                        } label: { Label("Save recipe", systemImage: "checkmark") }
-                        .buttonStyle(.borderedProminent)
-                        NavigationLink("Edit before saving") {
+                        let copy = RecipeDuplicates.match(for: r, in: model.household.recipes) != nil
+                        if copy {
+                            Button {
+                                model.save(r)
+                                model.banner = "Saved another copy of \(r.name)"
+                                dismiss()
+                            } label: { Label("Save a copy anyway", systemImage: "plus.square.on.square") }
+                        } else {
+                            Button {
+                                model.save(r)
+                                model.banner = "Saved \(r.name)"
+                                dismiss()
+                            } label: { Label("Save recipe", systemImage: "checkmark") }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        NavigationLink(copy ? "Edit, then save a copy" : "Edit before saving") {
                             RecipeEditorInline(recipe: r) { edited in model.save(edited); model.banner = "Saved \(edited.name)"; dismiss() }
                         }
                     }

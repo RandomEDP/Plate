@@ -80,6 +80,23 @@ struct PendingImport: Codable, Identifiable {
     var recipe: Recipe?
     /// The address of the post's cover picture; the app fetches it for the dish's photo.
     var thumbnail: String?
+    /// The saved recipe to update with this one, when it was already saved ("Update it" in the share sheet).
+    var replaces: UUID?
+    /// Saved as a second copy on purpose, so the app doesn't skip it as a repeat.
+    var keepCopy: Bool?
+}
+
+/// The recipes already in Plate, as the share extension sees them: the saved household plus anything shared but not
+/// yet picked up by the app.
+enum SavedRecipes {
+    static func all() -> [Recipe] {
+        var out: [Recipe] = []
+        if let data = try? Data(contentsOf: SharedStorage.householdURL),
+           let h = try? JSONDecoder.plate.decode(Household.self, from: data) {
+            out = h.recipes
+        }
+        return out + Inbox.read().compactMap(\.recipe)
+    }
 }
 
 enum Inbox {

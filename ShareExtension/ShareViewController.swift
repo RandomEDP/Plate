@@ -21,7 +21,12 @@ final class ShareViewController: UIViewController {
 
 @MainActor
 final class ShareModel: ObservableObject {
-    enum Phase { case reading, found(Recipe), failed(String), saved, videoSaved, needsVideo(String), waiting }
+    enum Phase {
+        case reading, found(Recipe), failed(String), saved, videoSaved, needsVideo(String), waiting
+        /// Already in Plate. The fresh reading comes too when there was a recipe in it, so it can update the saved one.
+        case duplicate(Recipe?, RecipeDuplicates.Match)
+        case updated(String)
+    }
 
     weak var context: NSExtensionContext?
     @Published var phase: Phase = .reading
@@ -60,6 +65,13 @@ final class ShareModel: ObservableObject {
                 let (c, _, _) = try await CaptionFetcher.fetch(shared)
                 caption = c.text; author = c.author; platform = p; thumbnail = c.thumbnail
             } catch {
+                // Already saved from this post: say so, rather than asking for the video.
+                let bare = Recipe(name: "", mealTypes: [], servings: 1, ingredients: [], steps: [],
+                                  source: RecipeSource(kind: p == .tiktok ? .tiktok : p == .instagram ? .instagram : .web, url: link))
+                if let match = RecipeDuplicates.match(for: bare, in: SavedRecipes.all()) {
+                    phase = .duplicate(nil, match)
+                    return
+                }
                 // The caption couldn't be read (a private post, say), but the recipe may still be in the video.
                 if p == .instagram || p == .tiktok {
                     phase = .needsVideo("Couldn't read the post's caption (\(error.localizedDescription)).")
@@ -74,7 +86,9 @@ final class ShareModel: ObservableObject {
         }
         let kind: RecipeSourceKind = platform == .tiktok ? .tiktok : platform == .instagram ? .instagram : (link == nil ? .manual : .web)
         let recipe = RecipeTextParser.parse(caption).recipe(source: RecipeSource(kind: kind, url: link, author: author))
-        if recipe.ingredients.count < 2, link != nil {
+        if let match = RecipeDuplicates.match(for: recipe, in: SavedRecipes.all()) {
+            phase = .duplicate(recipe.ingredients.count >= 2 ? recipe : nil, match)
+        } else if recipe.ingredients.count < 2, link != nil {
             phase = .needsVideo("There's no recipe in the caption, so it must be in the video.")
         } else if recipe.ingredients.count < 2 {
             phase = .failed("Couldn't find a recipe in that caption. If the recipe is only in the video, save the video, then share it to Plate (or use Recipes → Import → From a video).")
@@ -83,11 +97,13 @@ final class ShareModel: ObservableObject {
         }
     }
 
-    func save(_ recipe: Recipe) {
+    /// Drops the recipe in the inbox. `replaces` updates a recipe already saved; `keepCopy` saves a second copy on purpose.
+    func save(_ recipe: Recipe, replaces existing: Recipe? = nil, keepCopy: Bool = false) {
         do {
             try Inbox.append(PendingImport(link: link, caption: caption, author: author, recipe: recipe,
-                                           thumbnail: thumbnail?.absoluteString))
-            phase = .saved
+                                           thumbnail: thumbnail?.absoluteString,
+                                           replaces: existing?.id, keepCopy: keepCopy ? true : nil))
+            phase = existing.map { .updated($0.name) } ?? .saved
             Task {
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 self.close()
@@ -183,6 +199,29 @@ struct ShareView: View {
                         Image(systemName: "film").font(.largeTitle).foregroundStyle(.green)
                         Text("Saved. Open Plate and it'll watch the video for the recipe.").multilineTextAlignment(.center)
                         Button("Done") { model.close() }.buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                case .duplicate(let fresh, let match):
+                    VStack(spacing: 14) {
+                        Image(systemName: "checkmark.circle").font(.largeTitle).foregroundStyle(.green)
+                        Text(match.message).font(.headline).multilineTextAlignment(.center)
+                        Text("It's in Plate under Recipes, so there's no need to save it again.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button("Done") { model.close() }.buttonStyle(.borderedProminent)
+                        if let fresh {
+                            Button { model.save(fresh, replaces: match.recipe) } label: {
+                                Label("Update it with this version", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            Button { model.save(fresh, keepCopy: true) } label: {
+                                Label("Save a copy anyway", systemImage: "plus.square.on.square")
+                            }
+                        }
+                    }
+                    .padding()
+                case .updated(let name):
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
+                        Text("\(name) will be updated next time you open Plate.").multilineTextAlignment(.center)
                     }
                     .padding()
                 case .saved:

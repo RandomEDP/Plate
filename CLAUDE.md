@@ -101,6 +101,12 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   `RecipeShare.Payload` must change together; bump `v` for anything an older app couldn't read.
 - **Share extension** (`ShareExtension/`): reads the shared link or text, parses it and appends to `inbox.json` in the
   app group; the app takes the inbox when it opens (`AppModel.collectInbox`).
+- **Duplicates:** `RecipeDuplicates.match` (PlateCore) finds a saved recipe that a new one repeats: the same post
+  (link key from `BulkImport.key`), or no link to go on and the same name with most of the same ingredients (or nearly
+  all the same ingredients). Two posts with different links are never called the same. Import shows "Already saved"
+  with Open / Update it (`replaceRecipe`) / Save a copy anyway; the share extension reads `household.json` and the inbox
+  (`SavedRecipes`) and offers the same, passing `replaces`/`keepCopy` on `PendingImport`; Import many and shared videos
+  skip repeats.
 - **AI** (`App/AI/`): `AIChoice` automatic/apple/claude/off. Apple's Foundation Models (iOS 26, `@Generable`) is free
   and on-device; Claude is raw HTTP to the Messages API with a JSON schema output (`claude-opus-5-5` by default,
   `claude-haiku-5-5` as the cheaper option). A Claude.ai subscription can't be linked; only an API key. If AI fails,
