@@ -18,7 +18,7 @@ struct RecipesView: View {
     @State private var waiting = false
 
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All", ready = "Can make", favourites = "Favourites", topRated = "Top rated", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", saved = "Saved"
+        case all = "All", ready = "Can make", favourites = "Favourites", topRated = "Top rated", breakfast = "Breakfast", lunch = "Lunch", dinner = "Dinner", snack = "Snacks", sauces = "Sauces", saved = "Saved"
         var id: String { rawValue }
     }
 
@@ -33,10 +33,11 @@ struct RecipesView: View {
             case .ready: return m.canCookNow || m.missingCount <= 1
             case .favourites: return r.isFavourite
             case .topRated: return (r.rating ?? 0) >= 4
-            case .breakfast: return r.mealTypes.contains(.breakfast)
-            case .lunch: return r.mealTypes.contains(.lunch)
-            case .dinner: return r.mealTypes.contains(.dinner)
-            case .snack: return r.mealTypes.contains(.snack)
+            case .breakfast: return r.fits(.breakfast)
+            case .lunch: return r.fits(.lunch)
+            case .dinner: return r.fits(.dinner)
+            case .snack: return r.fits(.snack)
+            case .sauces: return r.isSauce
             case .saved: return r.source.kind != .builtIn
             }
         }
@@ -87,6 +88,7 @@ struct RecipesView: View {
                     if matches.isEmpty {
                         Text(filter == .ready ? "Nothing you can make right now. Add more to your kitchen, or try Ideas."
                              : filter == .topRated ? "Nothing rated four stars or more yet. Open a recipe you've made and tap its stars."
+                             : filter == .sauces ? "No sauces yet. Open a recipe, tap Edit and turn on “Sauce, dip or dressing”."
                              : "No recipes here yet.")
                             .foregroundStyle(.secondary)
                     }
@@ -245,7 +247,7 @@ struct RecipeDetailView: View {
                             if !r.summary.isEmpty { Text(r.summary).font(.subheadline).foregroundStyle(.secondary) }
                             HStack(spacing: 10) {
                                 if let m = r.minutes { Label("\(m) min", systemImage: "clock") }
-                                Text(r.mealTypes.map(\.title).joined(separator: " · "))
+                                Text(r.isSauce ? "Sauce" : r.mealTypes.map(\.title).joined(separator: " · "))
                                 if r.mealPrepFriendly { Label("Meal prep", systemImage: "takeoutbag.and.cup.and.straw") }
                             }
                             .font(.caption).foregroundStyle(.secondary)
@@ -605,6 +607,11 @@ struct RecipeEditor: View {
                         }
                     }
                     Toggle("Good for meal prep", isOn: $recipe.mealPrepFriendly)
+                }
+                Section {
+                    Toggle("Sauce, dip or dressing", isOn: $recipe.isSauce)
+                } footer: {
+                    Text("Sauces go under Sauces in Recipes and aren't planned as meals on their own.")
                 }
                 Section {
                     TextEditor(text: $ingredientText).frame(minHeight: 140)

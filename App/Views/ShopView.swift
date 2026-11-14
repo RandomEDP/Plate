@@ -251,12 +251,19 @@ struct MealPickerView: View {
                     Button { suggest = true } label: { Label("Suggest meals for me", systemImage: "wand.and.stars") }
                 }
                 ForEach(MealType.allCases) { meal in
-                    let rs = model.recipes.filter { $0.mealTypes.first == meal }
+                    let rs = model.recipes.filter { !$0.isSauce && $0.mealTypes.first == meal }
                         .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
                     if !rs.isEmpty {
                         Section(meal.title) {
                             ForEach(rs) { r in row(r) }
                         }
+                    }
+                }
+                let sauces = model.recipes.filter { $0.isSauce }
+                    .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+                if !sauces.isEmpty {
+                    Section("Sauces") {
+                        ForEach(sauces) { r in row(r) }
                     }
                 }
             }

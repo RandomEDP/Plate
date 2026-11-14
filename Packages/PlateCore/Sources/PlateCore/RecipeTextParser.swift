@@ -21,9 +21,12 @@ public struct ParsedRecipe: Equatable, Sendable {
     public var looksLikeRecipe: Bool { ingredients.count >= 2 }
 
     public func recipe(source: RecipeSource) -> Recipe {
-        Recipe(name: name, mealTypes: mealTypes, servings: servings ?? 1, ingredients: UnitStandard.tidy(ingredients), steps: steps,
-               minutes: minutes, tags: tags, source: source, statedPerServing: statedPerServing,
-               mealPrepFriendly: (servings ?? 1) >= 3 || tags.contains { $0.contains("mealprep") })
+        // A "#sauce" hashtag alone doesn't make it one ("Creamy chicken pasta #sauce"): the name decides.
+        var r = Recipe(name: name, mealTypes: mealTypes, servings: servings ?? 1, ingredients: UnitStandard.tidy(ingredients), steps: steps,
+                       minutes: minutes, tags: tags.filter { $0 != Sauces.tag }, source: source, statedPerServing: statedPerServing,
+                       mealPrepFriendly: (servings ?? 1) >= 3 || tags.contains { $0.contains("mealprep") })
+        Sauces.mark(&r)
+        return r
     }
 }
 

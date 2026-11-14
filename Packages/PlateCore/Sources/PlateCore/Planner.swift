@@ -56,7 +56,7 @@ public enum Planner {
             let freeDays = slotDays.filter { !keptDays.contains($0) }
             if freeDays.isEmpty { continue }
             let variety = max(1, min(options.settings.variety(meal), freeDays.count))
-            let pool = recipes.filter { $0.mealTypes.contains(meal) }
+            let pool = recipes.filter { $0.fits(meal) }  // never a sauce on its own
             if pool.isEmpty { continue }
 
             var chosen: [Recipe] = []
