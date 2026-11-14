@@ -150,7 +150,7 @@ struct ImportRecipeView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Paste a link or the recipe text, text: $input, axis: .vertical)
+                    TextField("Paste a link or the recipe text", text: $input, axis: .vertical)
                         .lineLimit(1...6)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)

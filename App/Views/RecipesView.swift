@@ -378,7 +378,7 @@ struct RecipeDetailView: View {
                 }
             }
         }
-        .confirmationDialog("Remove \(r.name)?, isPresented: $confirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("Remove \(r.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { model.delete(r); dismiss() }
         }
     }
