@@ -33,7 +33,10 @@ extension AppModel {
                     if !AIGuard.faithful(name: tidy.name, to: caption) { tidy.name = parsed.name }
                     // The creator's stated macros win over the model's estimate.
                     if let stated = parsed.statedPerServing { tidy.statedPerServing = stated }
+                    // Either reading's name can show it's a sauce; the caption's hashtags alone can't.
+                    let sauce = Sauces.looksLike(name: tidy.name) || recipe.isSauce
                     tidy.tags = parsed.tags
+                    tidy.isSauce = sauce
                     recipe = tidy
                     usedAI = engine.name
                 }

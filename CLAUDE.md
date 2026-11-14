@@ -111,6 +111,10 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   and on-device; Claude is raw HTTP to the Messages API with a JSON schema output (`claude-opus-5-5` by default,
   `claude-haiku-5-5` as the cheaper option). A Claude.ai subscription can't be linked; only an API key. If AI fails,
   Plate's own parsing stands.
+- **Sauces** (`Sauces.swift`): a recipe is a sauce, dip or dressing when it has the tag "sauce" (`Recipe.isSauce`), so the
+  file format didn't change. `Sauces.looksLike(name:)` tags new imports by name (a `#sauce` hashtag alone doesn't);
+  saved recipes were tagged once (`markSavedSaucesOnce`). Sauces have their own Recipes filter and Shop section, and
+  `Recipe.fits(meal)` keeps them out of the planner, swaps and meal suggestions.
 - **Planner** (`Planner.swift`): seeded, scores recipes by what's in stock, overlap with the rest of the week, expiring
   food, favourites, batch cooking and calorie targets. Locked entries stay put.
 - **Home dashboard**: `Dashboard.swift` in PlateCore holds the tiles, grid packing (`DashboardGrid.place`), free placement (`row`/`column` per tile, `moveTile`, `tidyPage`; a spot that doesn't fit a narrower

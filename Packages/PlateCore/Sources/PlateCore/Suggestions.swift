@@ -52,7 +52,7 @@ public enum Suggestions {
         let stock = Kitchen.stock(inventory)
         let expiring = Set(Kitchen.expiringSoon(inventory, within: 3, now: now).map { $0.foodId ?? "name:" + $0.name.lowercased() })
         return recipes
-            .filter { mealType == nil || $0.mealTypes.contains(mealType!) }
+            .filter { mealType == nil || $0.fits(mealType!) }
             .map { evaluate($0, servings: servings, stock: stock, expiring: expiring) }
             .sorted { a, b in
                 if a.canCookNow != b.canCookNow { return a.canCookNow }

@@ -30,7 +30,9 @@ final class AppModel {
         if let data = try? Data(contentsOf: SharedStorage.householdURL),
            var h = try? JSONDecoder.plate.decode(Household.self, from: data) {
             // Recipes saved before standard units (garlic in cloves and so on) are converted once.
-            if h.standardiseSavedRecipeUnitsOnce() { AppModel.write(h) }
+            let converted = h.standardiseSavedRecipeUnitsOnce()
+            // Sauces already saved are tagged once, so the Sauces filter has them from the start.
+            if h.markSavedSaucesOnce() || converted { AppModel.write(h) }
             household = h
         } else {
             household = Household()
@@ -252,7 +254,7 @@ final class AppModel {
 
     /// Picks a different recipe for one slot.
     func swap(_ entry: PlanEntry) {
-        let options = recipes.filter { $0.mealTypes.contains(entry.meal) && $0.id != entry.recipeId }
+        let options = recipes.filter { $0.fits(entry.meal) && $0.id != entry.recipeId }
         let ranked = Suggestions.rank(options, inventory: household.inventory, servings: entry.servings, now: Date(), mealType: entry.meal)
         let pick = ranked.prefix(6).randomElement()?.recipe ?? options.randomElement()
         guard let pick, let i = household.plan.entries.firstIndex(where: { $0.id == entry.id }) else { return }

@@ -22,9 +22,11 @@ struct RecipeDraft: Codable, Hashable {
         let types: [MealType] = mealType.map { $0 == .lunch || $0 == .dinner ? [$0, $0 == .lunch ? .dinner : .lunch] : [$0] }
             ?? RecipeTextParser.guessMealTypes(name: name, tags: [], ingredients: ings, text: "")
         let stated = calories > 0 ? Macros(kcal: calories, protein: protein, carbs: carbs, fat: fat) : nil
-        return Recipe(name: name, summary: summary ?? "", mealTypes: types, servings: max(1, servings), ingredients: ings,
-                      steps: steps, minutes: minutes > 0 ? minutes : nil, source: source, statedPerServing: stated,
-                      mealPrepFriendly: servings >= 3)
+        var r = Recipe(name: name, summary: summary ?? "", mealTypes: types, servings: max(1, servings), ingredients: ings,
+                       steps: steps, minutes: minutes > 0 ? minutes : nil, source: source, statedPerServing: stated,
+                       mealPrepFriendly: servings >= 3)
+        Sauces.mark(&r)
+        return r
     }
 }
 
