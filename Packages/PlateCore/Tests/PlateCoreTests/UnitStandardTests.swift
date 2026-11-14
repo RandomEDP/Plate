@@ -10,7 +10,9 @@ final class UnitStandardTests: XCTestCase {
     func testGarlicInGramsBecomesCloves() {
         let ing = tidy("15g garlic")
         XCTAssertEqual(ing.quantity, Quantity(3, .clove))
-        XCTAssertEqual(ing.note, "recipe said 15g")
+        XCTAssertEqual(ing.convertedFrom, Quantity(15, .g))
+        XCTAssertEqual(UnitStandard.convertedNote(ing), "Converted from 15g garlic")
+        XCTAssertNil(ing.note)
     }
 
     func testGarlicPasteBySpoonBecomesCloves() {
@@ -55,7 +57,7 @@ final class UnitStandardTests: XCTestCase {
     func testSplitThenStandardised() {
         let parts = UnitStandard.tidy([IngredientParser.ingredient("50g garlic and scallions")!])
         XCTAssertEqual(parts.map(\.quantity), [Quantity(5, .clove), Quantity(2, .piece)])
-        XCTAssertFalse(parts[0].note?.contains("recipe said") == true, "The split's note already says what was given")
+        XCTAssertNil(parts[0].convertedFrom, "The split's note already says what was given")
     }
 
     func testNewRecipesComeOutStandard() {

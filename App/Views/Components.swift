@@ -138,6 +138,9 @@ struct RecipeRow: View {
                             .accessibilityLabel("Rated \(stars) out of 5")
                     }
                     SourceIcon(source: recipe.source)
+                    if recipe.guessedCount > 0 || recipe.servingsGuessed == true {
+                        Label("Check amounts", systemImage: "questionmark.circle").font(.caption).foregroundStyle(.orange)
+                    }
                 }
             }
         }

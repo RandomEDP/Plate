@@ -206,6 +206,10 @@ struct RecipeDetailView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var takingPhoto = false
     @State private var showingPhoto = false
+    /// The line being put right: a converted amount or a guessed one.
+    @State private var fixing: RecipeIngredient?
+    @State private var typing: RecipeIngredient?
+    @State private var typed = ""
 
     /// The latest saved copy (favourite, edits), falling back to what was passed in (e.g. an unsaved variation).
     var current: Recipe { model.recipe(recipe.id) ?? recipe }
@@ -260,6 +264,16 @@ struct RecipeDetailView: View {
                     } else if Nutrition.computed(r).coverage < 0.9 {
                         Text("Some ingredients couldn't be counted, so these are a low estimate.").font(.caption2).foregroundStyle(.secondary)
                     }
+                    if r.guessedCount > 0 || r.servingsGuessed == true {
+                        GuessedNotice(recipe: r, canFix: isSaved) { n in
+                            var fixed = r
+                            fixed.servings = n
+                            fixed.servingsGuessed = nil
+                            fixed.updatedAt = Date()
+                            model.save(fixed)
+                            servings = 0
+                        }
+                    }
                 }
                 .listRowBackground(Color.clear)
             }
@@ -294,11 +308,23 @@ struct RecipeDetailView: View {
                         } else {
                             Image(systemName: "circle.dotted").foregroundStyle(.tertiary)
                         }
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(ingredientText(ing, scale: Double(s) / Double(r.servings)))
                             if let note = ing.note { Text(note).font(.caption).foregroundStyle(.secondary) }
+                            if let converted = UnitStandard.convertedNote(ing, scale: Double(s) / Double(r.servings)) {
+                                Text("(\(converted))").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if ing.isGuessed {
+                                Label("Amount guessed", systemImage: "questionmark.circle").font(.caption2).foregroundStyle(.orange)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        if isSaved && (ing.convertedFrom != nil || ing.isGuessed) {
+                            Image(systemName: "pencil").font(.caption).foregroundStyle(.tertiary)
                         }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { if isSaved && (ing.convertedFrom != nil || ing.isGuessed) { fixing = ing } }
                 }
             } header: {
                 Text("Ingredients")
@@ -383,6 +409,28 @@ struct RecipeDetailView: View {
         .confirmationDialog("Remove \(r.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { model.delete(r); dismiss() }
         }
+        .confirmationDialog(fixing.map { "\(Format.quantity($0.quantity ?? Quantity(0, .piece))) \($0.name)" } ?? "",
+                            isPresented: Binding(get: { fixing != nil }, set: { if !$0 { fixing = nil } }),
+                            titleVisibility: .visible, presenting: fixing) { ing in
+            if let from = ing.convertedFrom {
+                Button("Use the recipe's \(Format.quantity(from))") { model.save(current.undoingConversion(of: ing.id)) }
+            }
+            Button("Looks right") { model.save(current.confirming(ing.id)) }
+            Button("Type a different amount") { typed = ""; typing = ing }
+        } message: { ing in
+            Text(ing.isGuessed ? "The recipe didn't give this amount, so it was guessed." : "Plate changed this into the unit it uses for \(ing.name).")
+        }
+        .alert("How much \(typing?.name ?? "")?", isPresented: Binding(get: { typing != nil }, set: { if !$0 { typing = nil } }),
+               presenting: typing) { ing in
+            TextField("For example 3, 40g or 2 tbsp", text: $typed)
+            Button("Save") {
+                if let fixed = current.settingAmount(of: ing.id, to: typed) { model.save(fixed) }
+                else { model.banner = "Couldn't read “\(typed)”. Try something like 3, 40g or 2 tbsp." }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("For the whole recipe, which makes \(current.servings) portion\(current.servings == 1 ? "" : "s").")
+        }
     }
 
     /// Take a photo, choose one, or take the picture off. On the picture it's a round camera button; without one
@@ -427,6 +475,39 @@ struct RecipeDetailView: View {
         lines += r.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }
         lines += ["", "Serves \(r.servings) · \(Format.macros(Nutrition.perServing(r))) per portion", "Made with Plate"]
         return lines.joined(separator: "\n")
+    }
+}
+
+/// Says which parts of an imported recipe were guessed: amounts the AI filled in, or the number of portions.
+struct GuessedNotice: View {
+    let recipe: Recipe
+    let canFix: Bool
+    let setServings: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(message).font(.caption)
+            } icon: {
+                Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange)
+            }
+            if canFix && recipe.servingsGuessed == true {
+                Menu("How many does it serve?") {
+                    ForEach(1...8, id: \.self) { n in Button("\(n)") { setServings(n) } }
+                }
+                .font(.caption.weight(.semibold))
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    var message: String {
+        var parts: [String] = []
+        let n = recipe.guessedCount
+        if n > 0 { parts.append("\(n) amount\(n == 1 ? " was" : "s were") guessed, so check \(n == 1 ? "it" : "them") before you cook or shop. Tap a marked line to fix it.") }
+        if recipe.servingsGuessed == true { parts.append("The recipe didn't say how many it serves, so Plate assumed \(recipe.servings).") }
+        return parts.joined(separator: " ")
     }
 }
 
@@ -582,6 +663,11 @@ struct AddToPlanSheet: View {
 
 /// Write or edit a recipe. Ingredients are typed one per line, the same way they appear in captions.
 struct RecipeEditor: View {
+    static func line(for ing: RecipeIngredient) -> String {
+        let q = ing.quantity.map { Format.quantity($0) + " " } ?? ""
+        return q + ing.name + (ing.note.map { ", " + $0 } ?? "")
+    }
+
     @Environment(\.dismiss) private var dismiss
     @State var recipe: Recipe
     let onSave: (Recipe) -> Void
@@ -596,6 +682,7 @@ struct RecipeEditor: View {
                 Section {
                     TextField("Name", text: $recipe.name)
                     Stepper("Makes \(recipe.servings) portion\(recipe.servings == 1 ? "" : "s")", value: $recipe.servings, in: 1...40)
+                        .onChange(of: recipe.servings) { recipe.servingsGuessed = nil }
                     HStack {
                         ForEach(MealType.allCases) { m in
                             Button(m.title) {
@@ -627,10 +714,7 @@ struct RecipeEditor: View {
             .navigationTitle(recipe.name.isEmpty ? "New recipe" : "Edit recipe")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
-                ingredientText = recipe.ingredients.map { ing in
-                    let q = ing.quantity.map { Format.quantity($0) + " " } ?? ""
-                    return q + ing.name + (ing.note.map { ", " + $0 } ?? "")
-                }.joined(separator: "\n")
+                ingredientText = recipe.ingredients.map(RecipeEditor.line(for:)).joined(separator: "\n")
                 stepText = recipe.steps.joined(separator: "\n")
                 if let s = recipe.statedPerServing {
                     kcal = String(Int(s.kcal)); protein = String(Int(s.protein))
@@ -641,8 +725,11 @@ struct RecipeEditor: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         var r = recipe
+                        // Lines left as they were keep their converted-from note and guessed marker.
+                        let before = Dictionary(recipe.ingredients.map { (RecipeEditor.line(for: $0), $0) }, uniquingKeysWith: { a, _ in a })
                         r.ingredients = ingredientText.split(separator: "\n").compactMap { line in
-                            IngredientParser.ingredient(String(line)) ?? {
+                            if let same = before[String(line)] { return same }
+                            return IngredientParser.ingredient(String(line)) ?? {
                                 let t = line.trimmingCharacters(in: .whitespaces)
                                 return t.isEmpty ? nil : RecipeIngredient(name: t, foodId: nil, quantity: nil)
                             }()

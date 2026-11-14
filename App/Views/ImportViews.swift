@@ -37,7 +37,9 @@ extension AppModel {
                     let sauce = Sauces.looksLike(name: tidy.name) || recipe.isSauce
                     tidy.tags = parsed.tags
                     tidy.isSauce = sauce
-                    recipe = tidy
+                    // Amounts the AI filled in that the caption doesn't give are marked as guessed, and the
+                    // portions are what the caption says, or 2 (Ethan, 14 November 2026).
+                    recipe = GuessCheck.check(tidy, against: caption, parsed: parsed)
                     usedAI = engine.name
                 }
             } catch {

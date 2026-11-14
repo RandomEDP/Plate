@@ -218,10 +218,19 @@ public struct RecipeIngredient: Codable, Hashable, Sendable, Identifiable {
     /// "diced", "to taste" and so on.
     public var note: String?
     public var optional: Bool
+    /// What the recipe said before Plate put it in the ingredient's own unit ("30g" when it now says "2 chillies").
+    /// Shown in small text under the line so a bad conversion can be put back. Nil when nothing was converted.
+    public var convertedFrom: Quantity?
+    /// True when the amount isn't in the recipe's text: the AI filled it in. Nil (old files) means no.
+    public var amountGuessed: Bool?
 
-    public init(id: UUID = UUID(), name: String, foodId: String?, quantity: Quantity?, note: String? = nil, optional: Bool = false) {
+    public init(id: UUID = UUID(), name: String, foodId: String?, quantity: Quantity?, note: String? = nil, optional: Bool = false,
+                convertedFrom: Quantity? = nil, amountGuessed: Bool? = nil) {
         self.id = id; self.name = name; self.foodId = foodId; self.quantity = quantity; self.note = note; self.optional = optional
+        self.convertedFrom = convertedFrom; self.amountGuessed = amountGuessed
     }
+
+    public var isGuessed: Bool { amountGuessed == true }
 }
 
 public enum RecipeSourceKind: String, Codable, Sendable {
@@ -260,6 +269,8 @@ public struct Recipe: Codable, Hashable, Sendable, Identifiable {
     public var photo: RecipePhoto?
     public var createdAt: Date
     public var updatedAt: Date
+    /// True when the recipe didn't say how many it serves, so Plate assumed 2. Nil (old files) means no.
+    public var servingsGuessed: Bool?
 
     public init(id: UUID = UUID(), name: String, summary: String = "", mealTypes: [MealType], servings: Int,
                 ingredients: [RecipeIngredient], steps: [String], minutes: Int? = nil, tags: [String] = [],
