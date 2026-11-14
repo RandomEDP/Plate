@@ -114,7 +114,10 @@ struct ReimportView: View {
             rows[i].state = .working
             do {
                 let fresh = try await model.fetchRecipe(link: link)
+                // The post's cover found on the way: used unless the recipe already has a better picture.
+                let cover = model.takeFoundPhoto(for: fresh.id)
                 if model.household.replaceRecipe(rows[i].id, with: fresh) {
+                    if let cover { model.setPhoto(cover.data, origin: cover.origin, for: rows[i].id) }
                     rows[i].state = .done(fresh.name)
                 } else {
                     rows[i].state = .failed("Deleted while this was running.")

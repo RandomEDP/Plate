@@ -78,6 +78,8 @@ struct PendingImport: Codable, Identifiable {
     var caption: String
     var author: String?
     var recipe: Recipe?
+    /// The address of the post's cover picture; the app fetches it for the dish's photo.
+    var thumbnail: String?
 }
 
 enum Inbox {

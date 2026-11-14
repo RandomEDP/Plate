@@ -35,7 +35,9 @@ final class OstaReader {
       const links = Array.from(document.querySelectorAll('a[href]')).map(a => a.href);
       const html = document.documentElement ? document.documentElement.innerHTML : '';
       const ids = html.match(/recipes?\\/[A-Za-z0-9_-]{8,40}/g) || [];
+      const og = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
       return JSON.stringify({
+        image: og ? og.content : '',
         title: h1 ? h1.innerText : (document.title || ''),
         text: document.body ? document.body.innerText : '',
         links: links.concat(ids)
@@ -107,7 +109,8 @@ final class OstaReader {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return OstaImport.Page(title: obj["title"] as? String ?? "",
                                text: obj["text"] as? String ?? "",
-                               links: obj["links"] as? [String] ?? [])
+                               links: obj["links"] as? [String] ?? [],
+                               image: (obj["image"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     private func close() {

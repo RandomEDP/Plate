@@ -28,6 +28,7 @@ final class ShareModel: ObservableObject {
     var link: String?
     var caption = ""
     var author: String?
+    var thumbnail: URL?
 
     init(context: NSExtensionContext?) { self.context = context }
 
@@ -47,12 +48,17 @@ final class ShareModel: ObservableObject {
             phase = .failed("Nothing to read here. Share a Reel or TikTok, or the recipe text.")
             return
         }
+        // A recipe someone sent as a Plate link: it's all in the link.
+        if let recipe = RecipeShare.recipe(in: shared) {
+            phase = .found(recipe)
+            return
+        }
         var platform: SocialImport.Platform?
         if let (url, p) = SocialImport.link(in: shared), shared.count < url.absoluteString.count + 40 {
             link = url.absoluteString
             do {
                 let (c, _, _) = try await CaptionFetcher.fetch(shared)
-                caption = c.text; author = c.author; platform = p
+                caption = c.text; author = c.author; platform = p; thumbnail = c.thumbnail
             } catch {
                 // The caption couldn't be read (a private post, say), but the recipe may still be in the video.
                 if p == .instagram || p == .tiktok {
@@ -79,7 +85,8 @@ final class ShareModel: ObservableObject {
 
     func save(_ recipe: Recipe) {
         do {
-            try Inbox.append(PendingImport(link: link, caption: caption, author: author, recipe: recipe))
+            try Inbox.append(PendingImport(link: link, caption: caption, author: author, recipe: recipe,
+                                           thumbnail: thumbnail?.absoluteString))
             phase = .saved
             Task {
                 try? await Task.sleep(nanoseconds: 900_000_000)

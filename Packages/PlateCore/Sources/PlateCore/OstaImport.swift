@@ -56,8 +56,10 @@ public enum OstaImport {
         public var title: String
         public var text: String
         public var links: [String]
-        public init(title: String, text: String, links: [String] = []) {
-            self.title = title; self.text = text; self.links = links
+        /// The address of the page's main picture (its link-preview picture), when it has one.
+        public var image: String?
+        public init(title: String, text: String, links: [String] = [], image: String? = nil) {
+            self.title = title; self.text = text; self.links = links; self.image = image
         }
     }
 
@@ -67,6 +69,8 @@ public enum OstaImport {
         public var author: String?
         /// The original Instagram or TikTok post, when the page links to it.
         public var original: URL?
+        /// The recipe's picture on Osta, to use as the dish photo.
+        public var image: URL? = nil
     }
 
     /// Words on Osta's pages that are buttons and banners, not recipe.
@@ -246,6 +250,7 @@ public enum OstaImport {
             let p = SocialImport.platform(of: $0)
             return (p == .instagram && SocialImport.instagramCode($0) != nil) || (p == .tiktok && $0.path.contains("/video/"))
         }
-        return Extract(caption: out.joined(separator: "\n"), author: author, original: original)
+        return Extract(caption: out.joined(separator: "\n"), author: author, original: original,
+                       image: page.image.flatMap(SocialImport.webImage))
     }
 }

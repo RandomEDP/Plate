@@ -84,6 +84,19 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   Sharing a post whose caption has no recipe offers "Save link, add the video later": the link and caption go to
   `WaitingForVideo` (app group JSON), shown as Recipes → "N waiting for a video" (`WaitingVideosView`), where a
   screen recording is picked for each and read with the caption (`AppModel.recipeFromVideo`).
+- **Dish photos and ratings:** a recipe has `photo` (`RecipePhoto`: a file name and where it came from) and `rating`
+  (1 to 5). The JPEGs live in `DishPhotos/` in the app group, not in the household file (`App/DishPhotos.swift`).
+  `VideoReader` measures every frame it already reads (`FrameStats`, plus how much writing Vision found) and
+  `DishFrame.pick` (PlateCore, tested) chooses the still: late in the video, colourful, not an end card or a fade.
+  A link with no video gets the post's cover instead (`Caption.thumbnail`, Osta's `og:image`). A picture found during
+  an import waits in `AppModel.foundPhotos` until `save` puts it on the recipe. `RecipePhoto.shouldReplace` is the
+  rule for which picture stays: your own always; a found one never replaces your own. Built-in recipes keep theirs in
+  `extras` (`Household.dressed`). The planner nudges by rating.
+- **Sharing a recipe** (`RecipeShare.swift`): there's no server, so the whole recipe is packed into the link after the
+  `#` (which browsers never send anywhere). The link opens `docs/r/index.html` (GitHub Pages, served from `/docs` on
+  `main`), which shows the recipe and has an "Open in Plate" button to `plate://recipe#…`; `AppModel.open(sharedLink:)`
+  shows it to save. Pasting the link into Import, or sharing it to Plate, works with no internet. The page and
+  `RecipeShare.Payload` must change together; bump `v` for anything an older app couldn't read.
 - **Share extension** (`ShareExtension/`): reads the shared link or text, parses it and appends to `inbox.json` in the
   app group; the app takes the inbox when it opens (`AppModel.collectInbox`).
 - **AI** (`App/AI/`): `AIChoice` automatic/apple/claude/off. Apple's Foundation Models (iOS 26, `@Generable`) is free

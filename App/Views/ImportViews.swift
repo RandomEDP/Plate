@@ -52,8 +52,9 @@ extension AppModel {
         for file in VideoInbox.pending() {
             banner = "Watching a video you shared for the recipe…"
             do {
-                let text = try await VideoReader.read(file) { _ in }
-                if let (recipe, _) = await readRecipe(caption: text, link: nil, author: nil, platform: nil) {
+                let video = try await VideoReader.read(file) { _ in }
+                if let (recipe, _) = await readRecipe(caption: video.text, link: nil, author: nil, platform: nil) {
+                    offer(video.dish, for: recipe.id)
                     save(recipe)
                     banner = "Saved \(recipe.name) from a video"
                 } else {
@@ -67,14 +68,16 @@ extension AppModel {
     }
 
     /// Reads a recipe from a video, with the post's caption if there is one, keeping the post's link with it.
+    /// A still of the finished dish is kept for it and becomes its photo when it's saved.
     func recipeFromVideo(_ url: URL, caption: String?, link: String?, author: String?,
                          step: @MainActor @escaping (String) -> Void) async throws -> Recipe {
-        let text = try await VideoReader.read(url, caption: caption, step: step)
+        let video = try await VideoReader.read(url, caption: caption, step: step)
         step("Reading the recipe…")
         let platform = link.flatMap(URL.init(string:)).map(SocialImport.platform(of:))
-        guard let (recipe, _) = await readRecipe(caption: text, link: link, author: author, platform: platform) else {
+        guard let (recipe, _) = await readRecipe(caption: video.text, link: link, author: author, platform: platform) else {
             throw VideoReader.Failure.nothingFound
         }
+        offer(video.dish, for: recipe.id)
         return recipe
     }
 
@@ -83,20 +86,25 @@ extension AppModel {
     }
 
     /// Fetches a link (an Osta recipe page, or an Instagram or TikTok caption) and reads the recipe from it.
+    /// The post's cover picture is kept for it and becomes its photo when it's saved.
     func fetchRecipe(link url: URL) async throws -> Recipe {
         let caption: String
         let author: String?
+        let cover: URL?
         if OstaImport.kind(of: url) != nil {
             let page = try await OstaReader.recipe(url)
             caption = page.caption
             author = page.author
+            cover = page.image
         } else {
             let (c, _, _) = try await CaptionFetcher.fetch(url.absoluteString)
             caption = c.text
             author = c.author
+            cover = c.thumbnail
         }
         guard let (recipe, _) = await readRecipe(caption: caption, link: url.absoluteString, author: author,
                                                  platform: SocialImport.platform(of: url)) else { throw NoRecipe() }
+        await offerCover(cover, for: recipe.id)
         return recipe
     }
 }
@@ -133,12 +141,16 @@ struct ImportRecipeView: View {
     @State private var videoItem: PhotosPickerItem?
     @State private var pickingFile = false
     @State private var step: String?
+    /// The post's cover picture, fetched once the recipe is found.
+    @State private var cover: URL?
+    /// The picture the recipe will be saved with, shown with what was found.
+    @State private var picture: UIImage?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Paste a link or the recipe text", text: $input, axis: .vertical)
+                    TextField("Paste a link or the recipe text, text: $input, axis: .vertical)
                         .lineLimit(1...6)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
@@ -170,6 +182,12 @@ struct ImportRecipeView: View {
                 }
                 if let r = result {
                     Section {
+                        if let picture {
+                            Image(uiImage: picture).resizable().scaledToFill()
+                                .frame(maxWidth: .infinity).frame(height: 180)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .accessibilityLabel("Picture of the dish")
+                        }
                         Text(r.name).font(.headline)
                         Text("\(r.ingredients.count) ingredients · \(r.steps.count) steps · serves \(r.servings)")
                             .font(.subheadline).foregroundStyle(.secondary)
@@ -240,15 +258,23 @@ struct ImportRecipeView: View {
     }
 
     func go() async {
-        error = nil; result = nil; usedAI = nil
+        error = nil; result = nil; usedAI = nil; cover = nil; picture = nil
         working = true
         defer { working = false }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A recipe someone sent as a Plate link: it's all in the link, so there's nothing to fetch.
+        if let shared = RecipeShare.recipe(in: text) {
+            caption = ""; link = shared.source.url; author = shared.source.author
+            result = model.household.copy(of: shared) == nil ? shared : nil
+            if result == nil { error = "You already have \(shared.name) in your recipes." }
+            return
+        }
         // An Osta recipe link: read Osta's page.
         if let (url, _) = SocialImport.link(in: text), case .recipe? = OstaImport.kind(of: url) {
             do {
                 let page = try await OstaReader.recipe(url)
                 caption = page.caption; author = page.author; link = url.absoluteString; platform = .web
+                cover = page.image
             } catch {
                 self.error = error.localizedDescription
                 return
@@ -265,6 +291,7 @@ struct ImportRecipeView: View {
             do {
                 let (c, _, _) = try await CaptionFetcher.fetch(text)
                 caption = c.text; author = c.author; link = url.absoluteString; platform = p
+                cover = c.thumbnail
             } catch {
                 self.error = error.localizedDescription
                 return
@@ -278,7 +305,7 @@ struct ImportRecipeView: View {
 
     /// Watches a video for the recipe: the words on screen and what's said.
     func readVideo(_ url: URL) async {
-        error = nil; result = nil; usedAI = nil
+        error = nil; result = nil; usedAI = nil; cover = nil; picture = nil
         working = true
         defer { working = false; step = nil }
         // A link pasted above: its caption is read with the video (one may have what the other hasn't), and the link
@@ -290,7 +317,7 @@ struct ImportRecipeView: View {
             link = u.absoluteString; platform = p
             if OstaImport.kind(of: u) == nil, text.count < u.absoluteString.count + 40 {
                 step = "Reading the post's caption…"
-                if let (c, _, _) = try? await CaptionFetcher.fetch(text) { postCaption = c.text; author = c.author }
+                if let (c, _, _) = try? await CaptionFetcher.fetch(text) { postCaption = c.text; author = c.author; cover = c.thumbnail }
             } else if OstaImport.kind(of: u) == nil {
                 postCaption = text
             }
@@ -298,23 +325,34 @@ struct ImportRecipeView: View {
             link = nil; platform = nil
             if !text.isEmpty { postCaption = text }
         }
+        let dish: FoundPhoto?
         do {
-            caption = try await VideoReader.read(url, caption: postCaption) { step = $0 }
+            let video = try await VideoReader.read(url, caption: postCaption) { step = $0 }
+            caption = video.text
+            dish = video.dish
         } catch {
             self.error = error.localizedDescription
             return
         }
         step = "Reading the recipe…"
-        await read()
+        await read(dish: dish)
     }
 
-    func read() async {
+    /// Reads the recipe from the caption. Its picture is the still from the video when there is one, otherwise the
+    /// post's cover; it's kept for the recipe and saved with it.
+    func read(dish: FoundPhoto? = nil) async {
         guard let (recipe, ai) = await model.readRecipe(caption: caption, link: link, author: author, platform: platform) else {
             self.error = "Couldn't find a recipe in that. If the recipe is only in the video, save the video and pick it below."
             return
         }
         result = recipe
         usedAI = ai
+        var found = dish
+        if found == nil, let cover, let data = await DishPhotos.download(cover) { found = FoundPhoto(data: data, origin: .post) }
+        if let found {
+            model.offer(found, for: recipe.id)
+            picture = UIImage(data: found.data)
+        }
     }
 }
 

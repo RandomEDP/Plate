@@ -50,6 +50,8 @@ struct PlateApp: App {
                     // plate://wall opens wall mode; plate://command?text=kitchen%20off carries out a typed command.
                     // Both can be used from Apple's Shortcuts app, so Siri and automations can drive the dashboard.
                     if url.host == "wall" { model.showWall = true }
+                    // plate://recipe#… is a recipe someone sent as a link (the web page hands it over like this).
+                    model.open(sharedLink: url)
                     if url.host == "command",
                        let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "text" })?.value {
                         Task { model.banner = await engine.command(text) }
@@ -100,6 +102,15 @@ struct RootView: View {
                 .environment(photos)
                 .environment(weather)
                 .environment(engine)
+        }
+        .sheet(item: $model.arrived) { recipe in
+            // A recipe that arrived as a link: look it over, then save it (or it's one you already have).
+            NavigationStack {
+                RecipeDetailView(recipe: recipe)
+                    .navigationDestination(for: Recipe.self) { RecipeDetailView(recipe: $0) }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { model.arrived = nil } } }
+            }
+            .environment(model)
         }
         .overlay(alignment: .top) {
             if let text = model.banner {
