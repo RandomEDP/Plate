@@ -322,6 +322,8 @@ final class AppModel {
         let items = Inbox.takeAll()
         guard !items.isEmpty else { return }
         var names: [String] = []
+        var updated: [String] = []
+        var repeats: [String] = []
         for item in items {
             var recipe: Recipe
             if let r = item.recipe {
@@ -333,6 +335,17 @@ final class AppModel {
                 recipe = parsed.recipe(source: RecipeSource(kind: kind, url: item.link, author: item.author))
             }
             recipe.createdAt = item.savedAt
+            if let id = item.replaces, let old = household.recipes.first(where: { $0.id == id }),
+               household.replaceRecipe(id, with: recipe) {
+                updated.append(old.name)
+                if let cover = item.thumbnail.flatMap(URL.init(string:)) { Task { await offerCover(cover, for: id) } }
+                continue
+            }
+            // The same post shared twice before Plate was opened, say: keep the first.
+            if item.keepCopy != true, let match = RecipeDuplicates.match(for: recipe, in: household.recipes) {
+                repeats.append(match.recipe.name)
+                continue
+            }
             household.recipes.append(recipe)
             names.append(recipe.name)
             // The post's cover picture, as the dish's photo until there's a better one.
@@ -341,7 +354,7 @@ final class AppModel {
                 Task { await offerCover(cover, for: id) }
             }
         }
-        banner = names.count == 1 ? "Saved \(names[0])" : "Saved \(names.count) recipes"
+        banner = InboxSummary.text(saved: names, updated: updated, repeats: repeats)
     }
 }
 
