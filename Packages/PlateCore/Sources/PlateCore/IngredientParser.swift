@@ -29,6 +29,7 @@ public enum FoodMatcher {
 
     static func singular(_ w: String) -> String {
         if w.count <= 3 || w.hasSuffix("ss") || w.hasSuffix("us") { return w }
+        if w.hasSuffix("llies") { return String(w.dropLast(2)) }  // chillies → chilli
         if w.hasSuffix("ies") { return String(w.dropLast(3)) + "y" }
         if w.hasSuffix("oes") { return String(w.dropLast(2)) }
         if w.hasSuffix("ves") { return String(w.dropLast(3)) + "f" }
@@ -135,7 +136,7 @@ public enum IngredientParser {
         "scoop": (.piece, 1), "scoops": (.piece, 1),
         "piece": (.piece, 1), "pieces": (.piece, 1), "fillet": (.piece, 1), "fillets": (.piece, 1), "breast": (.piece, 1), "breasts": (.piece, 1),
         "knob": (.g, 10), "splash": (.ml, 10), "drizzle": (.ml, 5), "dash": (.ml, 1), "sprinkle": (.pinch, 1),
-        "sprig": (.g, 2), "sprigs": (.g, 2), "stick": (.piece, 1), "sticks": (.piece, 1), "head": (.piece, 1), "heads": (.piece, 1),
+        "sprig": (.g, 2), "sprigs": (.g, 2), "stick": (.piece, 1), "sticks": (.piece, 1), "head": (.piece, 1), "heads": (.piece, 1), "bulb": (.piece, 1), "bulbs": (.piece, 1),
         "pouch": (.pack, 1), "pouches": (.pack, 1), "block": (.pack, 1), "ball": (.piece, 1), "balls": (.piece, 1),
     ]
 
@@ -339,6 +340,11 @@ public enum IngredientParser {
         let food = FoodMatcher.match(name) ?? notes.lazy.compactMap { FoodMatcher.match($0) }.first
         // "salt and pepper to taste" has no amount: fine. A bare sentence with no food and no amount isn't an ingredient.
         if quantity == nil && food == nil { return nil }
+        // "1 bulb of garlic", "2 heads garlic": a whole bulb is about 10 cloves, not 1.
+        if let q = quantity, q.unit == .piece, let f = food, UnitStandard.cloveFoods.contains(f.id),
+           lowered.range(of: #"\b(bulbs?|heads?)\b"#, options: .regularExpression) != nil {
+            quantity = Quantity(q.amount * UnitStandard.clovesPerBulb, .clove)
+        }
         let note = notes.filter { !$0.isEmpty }.joined(separator: ", ")
         return Result(name: tidyName(name), quantity: quantity, note: note.isEmpty ? nil : note, optional: optional, food: food)
     }

@@ -30,9 +30,12 @@ final class AppModel {
         if let data = try? Data(contentsOf: SharedStorage.householdURL),
            var h = try? JSONDecoder.plate.decode(Household.self, from: data) {
             // Recipes saved before standard units (garlic in cloves and so on) are converted once.
-            let converted = h.standardiseSavedRecipeUnitsOnce()
+            var changed = h.standardiseSavedRecipeUnitsOnce()
             // Sauces already saved are tagged once, so the Sauces filter has them from the start.
-            if h.markSavedSaucesOnce() || converted { AppModel.write(h) }
+            if h.markSavedSaucesOnce() { changed = true }
+            // And once for the big ingredient list: "recipe said" notes move under the line, new matches convert.
+            if h.upgradeIngredientsOnce() { changed = true }
+            if changed { AppModel.write(h) }
             household = h
         } else {
             household = Household()

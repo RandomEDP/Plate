@@ -64,6 +64,11 @@ struct SettingsView: View {
                     Text("A Claude subscription can't be used by other apps, but an API key from console.anthropic.com can. It's kept in this iPhone's keychain and only sent to Anthropic.")
                 }
                 Section {
+                    NavigationLink("Ingredient list") { IngredientListView() }
+                } footer: {
+                    Text("Every ingredient Plate knows (\(FoodDatabase.all.count)) and the unit recipes are put into: grams, ml or items.")
+                }
+                Section {
                     LabeledContent("Recipes", value: "\(model.recipes.count)")
                     LabeledContent("Items in the kitchen", value: "\(model.household.inventory.count)")
                     Button("Clear everything", role: .destructive) { confirmReset = true }
@@ -90,5 +95,36 @@ struct SettingsView: View {
                 .frame(maxWidth: 90)
             Text(unit).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Every ingredient Plate knows, with the unit imported recipes are converted into.
+struct IngredientListView: View {
+    @State private var search = ""
+
+    var foods: [Food] {
+        let all = search.isEmpty ? FoodDatabase.all : FoodMatcher.search(search, limit: 200)
+        return all.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        List(foods) { food in
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(food.name)
+                    Text(food.category.title).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(IngredientCatalogue.unitLabel(food)).font(.subheadline.weight(.medium))
+                    if food.unit == .piece, let g = food.gramsPerPiece {
+                        Text("about \(Format.number(g, places: g < 10 ? 1 : 0, fractions: false)) g each").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .searchable(text: $search, prompt: "Search ingredients")
+        .navigationTitle("Ingredient list")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

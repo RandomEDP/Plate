@@ -20,11 +20,15 @@ public struct ParsedRecipe: Equatable, Sendable {
     /// Enough was found to call it a recipe.
     public var looksLikeRecipe: Bool { ingredients.count >= 2 }
 
+    /// Portions assumed when a recipe doesn't say (Ethan, 14 November 2026: "assume a portion makes 2").
+    public static let assumedServings = 2
+
     public func recipe(source: RecipeSource) -> Recipe {
         // A "#sauce" hashtag alone doesn't make it one ("Creamy chicken pasta #sauce"): the name decides.
-        var r = Recipe(name: name, mealTypes: mealTypes, servings: servings ?? 1, ingredients: UnitStandard.tidy(ingredients), steps: steps,
-                       minutes: minutes, tags: tags.filter { $0 != Sauces.tag }, source: source, statedPerServing: statedPerServing,
+        var r = Recipe(name: name, mealTypes: mealTypes, servings: servings ?? Self.assumedServings, ingredients: UnitStandard.tidy(ingredients),
+                       steps: steps, minutes: minutes, tags: tags.filter { $0 != Sauces.tag }, source: source, statedPerServing: statedPerServing,
                        mealPrepFriendly: (servings ?? 1) >= 3 || tags.contains { $0.contains("mealprep") })
+        if servings == nil { r.servingsGuessed = true }
         Sauces.mark(&r)
         return r
     }

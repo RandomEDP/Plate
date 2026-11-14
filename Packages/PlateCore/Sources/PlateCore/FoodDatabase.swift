@@ -10,7 +10,8 @@ private func s(_ size: Double, _ price: Double) -> PackOption { PackOption(.sain
 private func c(_ size: Double, _ price: Double) -> PackOption { PackOption(.costco, size, price) }
 
 public enum FoodDatabase {
-    public static let all: [Food] = meat + fish + dairy + bakery + grains + produce + tins + condiments + spices + snacks
+    public static let all: [Food] = IngredientCatalogue.merged(with: base)
+    static let base: [Food] = meat + fish + dairy + bakery + grains + produce + tins + condiments + spices + snacks
 
     public static let byId: [String: Food] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
 
@@ -203,7 +204,7 @@ public enum FoodDatabase {
         Food(id: "red-onion", name: "Red onions", aliases: ["red onion", "red onions"],
              category: .produce, storage: .cupboard, unit: .piece, per100: m(40, 1.1, 9, 0.1, 1.7), gramsPerPiece: 150, shelfLifeDays: 30,
              packs: [s(3, 0.95)]),
-        Food(id: "garlic", name: "Garlic", aliases: ["garlic", "garlic clove", "garlic cloves", "cloves of garlic", "clove of garlic", "minced garlic", "garlic puree", "crushed garlic"],
+        Food(id: "garlic", name: "Garlic", aliases: ["garlic", "garlic clove", "garlic cloves", "cloves of garlic", "clove of garlic", "minced garlic", "garlic puree", "garlic purée", "garlic paste", "crushed garlic", "garlic bulb", "bulb of garlic", "head of garlic"],
              category: .produce, storage: .cupboard, unit: .piece, per100: m(149, 6.4, 33, 0.5, 2.1), gramsPerPiece: 5, shelfLifeDays: 30,
              packs: [s(40, 0.85)]),
         Food(id: "ginger", name: "Ginger", aliases: ["ginger", "fresh ginger", "root ginger", "ginger paste", "grated ginger"],

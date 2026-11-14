@@ -62,6 +62,14 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   two foods ("50g garlic and scallions") into two ingredients when a recipe is built, from Plate's parser or the AI. `UnitStandard` then puts each in the unit
   you'd count it in (garlic in cloves, onions and eggs by the piece, liquids in ml, no oz or cups), noting what the recipe
   said; weighed foods like chicken stay as written. Saved recipes were converted once (`standardiseSavedRecipeUnitsOnce`).
+  **Ingredient catalogue** (`IngredientCatalogue.swift`, Ethan 14 November 2026): ~450 vegetarian ingredients on top of
+  `FoodDatabase`, each with one unit (items, ml or grams), macros and one rough Sainsbury's pack; an alias the catalogue
+  owns is taken off the original food (`merged`). What a recipe said is kept in `RecipeIngredient.convertedFrom` and shown
+  as "(Converted from 30g red chillies)" under the line; tapping it puts it back, accepts it or takes a typed amount.
+  Spoons, tins, bunches and counts of weighed foods stay; cups/ml become grams only for foods with a known density
+  (`gramsPerMl != 1`). **Guesses** (`GuessCheck`): after an AI tidy-up, amounts not in the caption get `amountGuessed`
+  (Plate's own reading wins where it found one), and recipes that don't say how many they serve get 2 with
+  `servingsGuessed`; both show an orange marker. `upgradeIngredientsOnce` moved old "recipe said" notes.
 - **Social import:** `SocialImport` (pure) plus `Shared/CaptionFetcher.swift`: TikTok's oEmbed `title` is the caption, but
   oEmbed often can't read share links (vm.tiktok.com), so they're followed to the post first and the post page's
   `desc` (`readTikTokPage`) is the fallback; "private" is only said when TikTok says so (`TikTokImportTests`);

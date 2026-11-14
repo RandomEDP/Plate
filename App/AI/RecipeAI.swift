@@ -83,7 +83,8 @@ enum AIPrompts {
         """
         This is the caption from an Instagram Reel or TikTok. Pull out the recipe exactly as the creator gives it: \
         their amounts, their number of portions, and their macros if they state them. Leave out hashtags, adverts and \
-        "follow for more". If the caption doesn't say how many portions, make a sensible guess. The meal is one of \
+        "follow for more". If the caption doesn't say how many portions, use 2. Never make up an amount the caption \
+        doesn't give: write the ingredient without one. The meal is one of \
         breakfast, lunch, dinner or snack.
 
         Caption:

@@ -19,7 +19,7 @@ final class IngredientParserTests: XCTestCase {
         check("- 2 tbsp olive oil", 2, .tbsp, food: "olive-oil")
         check("• 1 tin chopped tomatoes", 1, .can, food: "chopped-tomatoes")
         check("2 x 400g tins chopped tomatoes", 800, .g, food: "chopped-tomatoes")
-        check("1/2 tsp chilli flakes", 0.5, .tsp, food: "spices")
+        check("1/2 tsp chilli flakes", 0.5, .tsp, food: "chilli-flakes")
         check("1½ cups milk", 1.5, .cup, food: "milk")
         check("1 1/2 cups rolled oats", 1.5, .cup, food: "oats")
         check("3 garlic cloves, minced", 3, .piece, food: "garlic")
@@ -96,7 +96,7 @@ final class IngredientParserTests: XCTestCase {
             if !f.isStaple && f.id != "water" { XCTAssertFalse(f.packs.isEmpty, "\(f.id) has no packs to buy") }
             // Macros roughly add up (4/4/9), allowing for fibre and rounding.
             let est = f.per100.protein * 4 + f.per100.carbs * 4 + f.per100.fat * 9
-            if f.per100.kcal > 50 { XCTAssertEqual(est, f.per100.kcal, accuracy: f.per100.kcal * 0.3 + 15, "\(f.id) macros don't add up") }
+            if f.per100.kcal > 50, !IngredientCatalogue.alcoholic.contains(f.id) { XCTAssertEqual(est, f.per100.kcal, accuracy: f.per100.kcal * 0.3 + 15, "\(f.id) macros don't add up") }
         }
     }
 
@@ -140,7 +140,7 @@ final class RecipeTextParserTests: XCTestCase {
         XCTAssertEqual(r.name, "High Protein Chicken Fajita Bowls")
         XCTAssertEqual(r.servings, 4)
         XCTAssertEqual(r.ingredients.count, 8)
-        XCTAssertEqual(r.ingredients.compactMap(\.foodId), ["chicken-breast", "spices", "pepper", "red-onion", "rice", "black-beans", "greek-yoghurt", "lime"])
+        XCTAssertEqual(r.ingredients.compactMap(\.foodId), ["chicken-breast", "fajita-seasoning", "pepper", "red-onion", "rice", "black-beans", "greek-yoghurt", "lime"])
         XCTAssertEqual(r.steps.count, 3)
         XCTAssertEqual(r.steps.first, "Season the chicken and air fry at 200C for 15 mins.")
         XCTAssertEqual(r.statedPerServing?.kcal, 520)
@@ -174,7 +174,7 @@ final class RecipeTextParserTests: XCTestCase {
         XCTAssertEqual(r.name, "Creamy garlic tuscan salmon pasta")
         XCTAssertEqual(r.servings, 2)
         XCTAssertEqual(r.minutes, 20)
-        XCTAssertEqual(r.ingredients.compactMap(\.foodId), ["pasta", "salmon", "garlic", "tomato", "spinach", "double-cream", "parmesan"])
+        XCTAssertEqual(r.ingredients.compactMap(\.foodId), ["pasta", "salmon", "garlic", "sun-dried-tomatoes", "spinach", "double-cream", "parmesan"])
         XCTAssertEqual(r.steps.count, 1)
         XCTAssertTrue(r.steps[0].hasPrefix("Cook the pasta"))
         XCTAssertNil(r.statedPerServing)
