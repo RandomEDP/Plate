@@ -55,6 +55,7 @@ struct TileView: View {
         case .battery: BatteryTile(tile: tile)
         case .group: GroupTile(tile: tile, editing: editing)
         case .trains: TrainTile(tile: tile)
+        case .checklist: ChecklistTile(tile: tile)
         case .folder: FolderTile(tile: tile, editing: editing)
         case .heading: HeadingTile(tile: tile)
         case .spacer: SpacerTile(editing: editing)

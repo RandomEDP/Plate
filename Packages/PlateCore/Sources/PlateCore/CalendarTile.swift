@@ -201,3 +201,46 @@ extension CalendarTileSettings {
             .sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 }
+
+// MARK: Today's list
+
+/// How often a reminder added from the dashboard comes round again. The app turns this into a Reminders repeat, so a
+/// repeating reminder ticked off today comes back on its next day by itself.
+public enum ReminderRepeat: String, CaseIterable, Hashable, Sendable, Identifiable {
+    case never, daily, weekdays, weekly, fortnightly, monthly
+
+    public var id: String { rawValue }
+
+    /// "Every Thursday" for weekly ones, given the day it starts on.
+    public func title(startingOn day: Date, calendar: Calendar) -> String {
+        switch self {
+        case .never: return "Just once"
+        case .daily: return "Every day"
+        case .weekdays: return "Every weekday"
+        case .weekly: return "Every \(DayText.weekday(day, calendar: calendar))"
+        case .fortnightly: return "Every other \(DayText.weekday(day, calendar: calendar))"
+        case .monthly: return "Every month"
+        }
+    }
+}
+
+extension CalendarTileSettings {
+    /// What's on today's list: reminders from the chosen lists due today or overdue, then (unless turned off) ones with
+    /// no date. Overdue first, then anything due at no particular time, then timed ones in time order.
+    public static func dueToday(_ reminders: [ReminderItem], options: [String: String], now: Date, calendar: Calendar) -> [ReminderItem] {
+        let lists = reminderLists(options)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+        let dated = reminders.filter { r in
+            guard let due = r.due, lists.contains(r.listId) else { return false }
+            return due < tomorrow
+        }
+        .sorted { a, b in
+            func key(_ r: ReminderItem) -> (Int, Date, Int, String) {
+                let late = r.isOverdue(now: now, calendar: calendar)
+                return (late ? 0 : r.dueHasTime ? 2 : 1, r.due ?? now, r.rank, r.title.lowercased())
+            }
+            return key(a) < key(b)
+        }
+        return dated + undated(reminders, options: options)
+    }
+}

@@ -268,16 +268,37 @@ final class CalendarStore {
         } catch {}
     }
 
-    /// Adds a reminder to a list, due on `due` if given.
-    func add(_ title: String, to listId: String, due: Date? = nil) async {
+    /// Adds a reminder to a list, due on `due` if given. A repeating one is due from today unless told otherwise, and
+    /// uses Reminders' own repeat, so it comes back by itself after it's ticked off (in the Reminders app too).
+    func add(_ title: String, to listId: String, due: Date? = nil, repeats: ReminderRepeat = .never) async {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, let list = store.calendar(withIdentifier: listId) else { return }
         let r = EKReminder(eventStore: store)
         r.title = t
         r.calendar = list
-        if let due { r.dueDateComponents = Calendar.plate.dateComponents([.year, .month, .day], from: due) }
-        try? store.save(r, commit: true)
+        let day = due ?? (repeats == .never ? nil : Date())
+        if let day { r.dueDateComponents = Calendar.plate.dateComponents([.year, .month, .day], from: day) }
+        if let rule = Self.rule(repeats) { r.addRecurrenceRule(rule) }
+        do {
+            try store.save(r, commit: true)
+            Feedback.shared.play(.tap)
+        } catch {}
         await refreshReminders(force: true)
+    }
+
+    static func rule(_ repeats: ReminderRepeat) -> EKRecurrenceRule? {
+        switch repeats {
+        case .never: return nil
+        case .daily: return EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil)
+        case .weekly: return EKRecurrenceRule(recurrenceWith: .weekly, interval: 1, end: nil)
+        case .fortnightly: return EKRecurrenceRule(recurrenceWith: .weekly, interval: 2, end: nil)
+        case .monthly: return EKRecurrenceRule(recurrenceWith: .monthly, interval: 1, end: nil)
+        case .weekdays:
+            let days: [EKWeekday] = [.monday, .tuesday, .wednesday, .thursday, .friday]
+            return EKRecurrenceRule(recurrenceWith: .weekly, interval: 1, daysOfTheWeek: days.map { EKRecurrenceDayOfWeek($0) },
+                                    daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil, daysOfTheYear: nil,
+                                    setPositions: nil, end: nil)
+        }
     }
 
     /// Reads the next month of events from every calendar. Each tile picks its own calendars and days from these.
@@ -449,6 +470,46 @@ struct ReminderLine: View {
     }
 }
 
+/// Which Reminders lists a calendar tile or today's list shows.
+struct ReminderListSettings: View {
+    @Binding var options: [String: String]
+    var forChecklist = false
+    private var store: CalendarStore { CalendarStore.shared }
+
+    var body: some View {
+        Section {
+            if store.canReadReminders {
+                let chosen = CalendarTileSettings.reminderLists(options)
+                ForEach(store.reminderLists) { list in
+                    Button { CalendarTileSettings.toggleReminderList(list.id, in: &options) } label: {
+                        HStack {
+                            Image(systemName: "list.bullet.circle.fill").foregroundStyle(list.color)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(list.title)
+                                Text(list.account).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if chosen.contains(list.id) { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+                if !chosen.isEmpty {
+                    Toggle(forChecklist ? "Also list ones with no date" : "Also show ones with no date", isOn: Binding(get: { CalendarTileSettings.showsUndated(options) },
+                                                                       set: { options["undated"] = $0 ? nil : "0" }))
+                }
+            } else if store.reminderStatus == .notDetermined {
+                Button(forChecklist ? "Allow Plate to see your reminders" : "Show reminders too") { Task { await store.refreshReminders(ask: true, force: true) } }
+            } else {
+                Text("Plate isn't allowed to see your reminders. Turn on Full Access in Settings → Privacy & Security → Reminders → Plate.")
+            }
+        } header: { Text("Reminders") } footer: {
+            Text(forChecklist ? "Reminders due today from the lists you tick, repeating ones too, as a list to tick off. Ticking one off ticks it off in Reminders for everyone the list is shared with, and a repeating one comes back on its next day. A shared list appears here once you've joined it in the Reminders app." : "Reminders from the lists you tick appear among the events, on the day they're due (overdue ones under today). Tap the circle to tick one off; it's ticked off in Reminders for everyone the list is shared with. A shared list appears here once you've joined it in the Reminders app.")
+        }
+        .task { await store.refreshReminders(force: true) }
+    }
+}
+
 /// The calendar tile's settings: which calendars (shared ones included) and how far ahead.
 struct CalendarSettings: View {
     @Binding var options: [String: String]
@@ -494,36 +555,7 @@ struct CalendarSettings: View {
             Text("Every calendar on this iPad is here, including ones shared with you. A calendar someone shares in iCloud appears once you've accepted the invitation in the Calendar app. Google and Outlook calendars appear once the account is added in Settings → Calendar → Accounts.")
         }
         .task { await store.refresh(force: true) }
-        Section {
-            if store.canReadReminders {
-                let chosen = CalendarTileSettings.reminderLists(options)
-                ForEach(store.reminderLists) { list in
-                    Button { CalendarTileSettings.toggleReminderList(list.id, in: &options) } label: {
-                        HStack {
-                            Image(systemName: "list.bullet.circle.fill").foregroundStyle(list.color)
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(list.title)
-                                Text(list.account).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if chosen.contains(list.id) { Image(systemName: "checkmark").foregroundStyle(.tint) }
-                        }
-                    }
-                    .foregroundStyle(.primary)
-                }
-                if !chosen.isEmpty {
-                    Toggle("Also show ones with no date", isOn: Binding(get: { CalendarTileSettings.showsUndated(options) },
-                                                                       set: { options["undated"] = $0 ? nil : "0" }))
-                }
-            } else if store.reminderStatus == .notDetermined {
-                Button("Show reminders too") { Task { await store.refreshReminders(ask: true, force: true) } }
-            } else {
-                Text("Plate isn't allowed to see your reminders. Turn on Full Access in Settings → Privacy & Security → Reminders → Plate.")
-            }
-        } header: { Text("Reminders") } footer: {
-            Text("Reminders from the lists you tick appear among the events, on the day they're due (overdue ones under today). Tap the circle to tick one off; it's ticked off in Reminders for everyone the list is shared with. A shared list appears here once you've joined it in the Reminders app.")
-        }
-        .task { await store.refreshReminders(force: true) }
+        ReminderListSettings(options: $options)
     }
 
     private func tick(_ title: String, _ on: Bool) -> some View {

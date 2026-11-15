@@ -297,6 +297,8 @@ struct TileEditorView: View {
             }
         case .calendar:
             CalendarSettings(options: $draft.options)
+        case .checklist:
+            ReminderListSettings(options: $draft.options, forChecklist: true)
         case .clock:
             Section("Clock") {
                 Picker("Face", selection: option("face")) {

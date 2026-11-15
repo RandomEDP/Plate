@@ -70,6 +70,7 @@ struct TileDetailView: View {
         case .bins: return tile.name("Bin days")
         case .wifi: return "Guest Wi-Fi"
         case .activity: return tile.name("Recently")
+        case .checklist: return tile.name("Today")
         default: return tile.name()
         }
     }
@@ -84,6 +85,7 @@ struct TileDetailView: View {
         case .bins: BinsDetailView()
         case .wifi: WiFiDetailView(tile: tile)
         case .activity: ActivityDetailView()
+        case .checklist: ChecklistDetailView(tile: tile)
         default: ContentUnavailableView("Nothing more to show", systemImage: "square.dashed")
         }
     }

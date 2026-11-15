@@ -973,6 +973,7 @@ extension TileKind {
         case .group: return "square.grid.2x2.fill"
         case .folder: return "folder.fill"
         case .trains: return "tram.fill"
+        case .checklist: return "checklist.checked"
         case .heading: return "textformat.size"
         case .spacer: return "square.dashed"
         case .unknown: return "questionmark"
