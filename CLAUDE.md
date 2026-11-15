@@ -146,7 +146,7 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   a sheet from `TileDetails.swift`, or a jump to a Plate tab; add a case there with each new display-only `TileKind`.
   The calendar tile can mix in reminders from chosen Reminders lists (`rlists` option, `CalendarTileSettings.agenda`,
   Ethan 15 November 2026, for a shared household list); `CalendarStore` reads them and ticks them off in EventKit.
-  The `checklist` tile ("Today's list", `ChecklistTile.swift`) shows `CalendarTileSettings.dueToday`; items added from it
+  The `checklist` tile ("Today's list", `ChecklistTile.swift`) shows `CalendarTileSettings.todayList` (reminders due today plus today's events, option `events`, Ethan 15 November 2026); items added from it
   can repeat (`ReminderRepeat` → `EKRecurrenceRule`), so Reminders brings them back after they're ticked off.
   Tracking (Ethan chose to keep Apple Reminders, 15 November 2026): `Habits` (PlateCore) turns the last 30 days of completed
   reminders (`CalendarStore.done`, ticks from any device) into streaks and "done 5 of the last 7 days"; Plate stores nothing extra. Music uses `SystemMusicPlayer`, so the dashboard follows whatever the Music app

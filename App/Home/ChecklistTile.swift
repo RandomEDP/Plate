@@ -2,7 +2,8 @@ import EventKit
 import PlateCore
 import SwiftUI
 
-/// Today's list: reminders due today (repeating ones included) from the chosen Reminders lists, as bullets to tick off.
+/// Today's list: reminders due today (repeating ones included) from the chosen Reminders lists, as bullets to tick off,
+/// with today's calendar events slotted in by time.
 struct ChecklistTile: View {
     let tile: DashboardTile
     @Environment(\.dashStyle) private var style
@@ -12,10 +13,11 @@ struct ChecklistTile: View {
         TileCard {
             VStack(alignment: .leading, spacing: 6) {
                 TileHeader(title: tile.name("Today"), symbol: "checklist.checked")
-                if CalendarTileSettings.reminderLists(tile.options).isEmpty {
+                let lists = !CalendarTileSettings.reminderLists(tile.options).isEmpty
+                if !lists && !CalendarTileSettings.showsEvents(tile.options) {
                     Text("Edit this tile to choose a Reminders list, such as one you share.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                } else if store.reminderStatus == .denied || store.reminderStatus == .restricted {
+                } else if lists && (store.reminderStatus == .denied || store.reminderStatus == .restricted) {
                     Text("Plate isn't allowed to see your reminders. Turn on Full Access in Settings → Privacy & Security → Reminders → Plate.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
@@ -28,27 +30,53 @@ struct ChecklistTile: View {
         .task {
             while !Task.isCancelled {
                 await store.refreshReminders(ask: true)
+                if CalendarTileSettings.showsEvents(tile.options) { await store.refresh() }
                 try? await Task.sleep(for: .seconds(2 * 60))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
-            Task { await store.refreshReminders(force: true) }
+            Task {
+                await store.refreshReminders(force: true)
+                await store.refresh(force: true)
+            }
         }
     }
 
     @ViewBuilder private func list(now: Date) -> some View {
-        let items = CalendarTileSettings.dueToday(store.reminders, options: tile.options, now: now, calendar: .plate)
+        let items = CalendarTileSettings.todayList(events: store.events, reminders: store.reminders, options: tile.options,
+                                                   now: now, calendar: .plate)
         let limit = tile.size == .large || tile.size == .tall ? 8 : tile.size == .wide ? 3 : 2
         let stats = Habits.stats(store.done, options: tile.options, now: now, calendar: .plate)
         if items.isEmpty {
             Label("All done for today", systemImage: "checkmark.seal.fill").font(.subheadline).foregroundStyle(.green)
         }
-        ForEach(items.prefix(limit)) { r in
-            ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? style.accent.color, now: now,
-                         compact: tile.size == .small || !(r.dueHasTime || r.isOverdue(now: now, calendar: .plate)),
-                         streak: Habits.streak(for: r.title, in: stats))
+        ForEach(items.prefix(limit)) { item in
+            switch item {
+            case .event(let e):
+                HStack(spacing: 8) {
+                    Capsule().fill(store.colours[e.calendarId] ?? style.accent.color).frame(width: 4, height: 28)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(e.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                        if tile.size != .small {
+                            Text(Self.when(e, now: now)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+            case .reminder(let r):
+                ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? style.accent.color, now: now,
+                             compact: tile.size == .small || !(r.dueHasTime || r.isOverdue(now: now, calendar: .plate)),
+                             streak: Habits.streak(for: r.title, in: stats))
+            }
         }
         if items.count > limit { Text("and \(items.count - limit) more").font(.caption).foregroundStyle(.secondary) }
+    }
+
+    /// "All day", "Now, until 14:00" or "18:00 to 19:30".
+    static func when(_ e: CalendarEvent, now: Date) -> String {
+        let t = { (d: Date) in HeaderClock.timeText(d, calendar: .plate) }
+        if e.allDay { return "All day" }
+        if e.start <= now { return "Now, until \(t(e.end))" }
+        return "\(t(e.start)) to \(t(e.end))"
     }
 }
 
@@ -63,7 +91,8 @@ struct ChecklistDetailView: View {
     var body: some View {
         let lists = store.reminderLists.filter { CalendarTileSettings.reminderLists(tile.options).contains($0.id) }
         TimelineView(.everyMinute) { ctx in
-            let items = CalendarTileSettings.dueToday(store.reminders, options: tile.options, now: ctx.date, calendar: .plate)
+            let items = CalendarTileSettings.todayList(events: store.events, reminders: store.reminders, options: tile.options,
+                                                       now: ctx.date, calendar: .plate)
             let stats = Habits.stats(store.done, options: tile.options, now: ctx.date, calendar: .plate)
             List {
                 if !lists.isEmpty {
@@ -89,9 +118,13 @@ struct ChecklistDetailView: View {
                 }
                 Section("Today") {
                     if items.isEmpty { Label("All done for today", systemImage: "checkmark.seal.fill").foregroundStyle(.green) }
-                    ForEach(items) { r in
-                        ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? .accentColor, now: ctx.date,
-                                     streak: Habits.streak(for: r.title, in: stats))
+                    ForEach(items) { item in
+                        switch item {
+                        case .event(let e): EventRow(event: e, now: ctx.date)
+                        case .reminder(let r):
+                            ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? .accentColor, now: ctx.date,
+                                         streak: Habits.streak(for: r.title, in: stats))
+                        }
                     }
                 }
                 if !stats.isEmpty {
@@ -114,7 +147,10 @@ struct ChecklistDetailView: View {
                 }
             }
         }
-        .task { await store.refreshReminders(ask: true, force: true) }
+        .task {
+            await store.refreshReminders(ask: true, force: true)
+            if CalendarTileSettings.showsEvents(tile.options) { await store.refresh(force: true) }
+        }
     }
 
     private func add(_ lists: [CalendarStore.Source]) {

@@ -244,3 +244,20 @@ extension CalendarTileSettings {
         return dated + undated(reminders, options: options)
     }
 }
+
+extension CalendarTileSettings {
+    /// Whether today's list also shows today's calendar events ("events", on unless turned off). Which calendars
+    /// comes from "cals", as on the calendar tile.
+    public static func showsEvents(_ options: [String: String]) -> Bool { options["events"] != "0" }
+
+    /// Everything on today's list: today's events still to finish and today's (or overdue) reminders, in order through
+    /// the day, then reminders with no date.
+    public static func todayList(events: [CalendarEvent], reminders: [ReminderItem], options: [String: String], now: Date,
+                                 calendar: Calendar) -> [AgendaItem] {
+        var today = options
+        today["days"] = "1"
+        let dated = agenda(events: showsEvents(options) ? events : [], reminders: reminders, options: today, now: now,
+                           calendar: calendar)
+        return dated + undated(reminders, options: options).map(AgendaItem.reminder)
+    }
+}
