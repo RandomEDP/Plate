@@ -215,6 +215,8 @@ final class CalendarStore {
     // Reminders: asked for separately, the first time a tile is given a Reminders list.
     var reminderStatus = EKEventStore.authorizationStatus(for: .reminder)
     private(set) var reminders: [ReminderItem] = []
+    /// What's been ticked off in the last 30 days, for the streaks on today's list.
+    private(set) var done: [ReminderDone] = []
     private(set) var reminderLists: [Source] = []
     var canReadReminders: Bool { reminderStatus == .fullAccess }
     var listColours: [String: Color] { Dictionary(reminderLists.map { ($0.id, $0.color) }, uniquingKeysWith: { a, _ in a }) }
@@ -242,6 +244,19 @@ final class CalendarStore {
             }
         }
         reminders = found
+        let monthAgo = Calendar.plate.date(byAdding: .day, value: -31, to: Date()) ?? Date()
+        let donePredicate = store.predicateForCompletedReminders(withCompletionDateStarting: monthAgo, ending: Date(), calendars: nil)
+        done = await withCheckedContinuation { finished in
+            store.fetchReminders(matching: donePredicate) { @Sendable list in
+                finished.resume(returning: CalendarStore.doneItems(list ?? []))
+            }
+        }
+    }
+
+    nonisolated static func doneItems(_ list: [EKReminder]) -> [ReminderDone] {
+        list.prefix(2000).compactMap { r in
+            r.completionDate.map { ReminderDone(title: r.title ?? "", listId: r.calendar.calendarIdentifier, completed: $0) }
+        }
     }
 
     nonisolated static func items(_ list: [EKReminder]) -> [ReminderItem] {
@@ -263,6 +278,9 @@ final class CalendarStore {
         r.isCompleted = true
         do {
             try store.save(r, commit: true)
+            if let item = reminders.first(where: { $0.id == id }) {
+                done.append(ReminderDone(title: item.title, listId: item.listId, completed: Date()))
+            }
             reminders.removeAll { $0.id == id }
             Feedback.shared.play(.on)
         } catch {}
@@ -429,6 +447,8 @@ struct ReminderLine: View {
     let colour: Color
     let now: Date
     var compact = false
+    /// Days in a row, shown as a small flame when it's 2 or more.
+    var streak: Int? = nil
     @State private var ticked = false
 
     var body: some View {
@@ -449,8 +469,15 @@ struct ReminderLine: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Tick off \(reminder.title)")
             VStack(alignment: .leading, spacing: 0) {
-                Text(reminder.title).font(.subheadline.weight(.medium)).lineLimit(1).strikethrough(ticked)
-                    .foregroundStyle(ticked ? Color.secondary : Color.primary)
+                HStack(spacing: 6) {
+                    Text(reminder.title).font(.subheadline.weight(.medium)).lineLimit(1).strikethrough(ticked)
+                        .foregroundStyle(ticked ? Color.secondary : Color.primary)
+                    if let streak {
+                        Label("\(streak)", systemImage: "flame.fill").font(.caption2.weight(.bold)).foregroundStyle(.orange)
+                            .labelStyle(.titleAndIcon)
+                            .accessibilityLabel("\(streak) days in a row")
+                    }
+                }
                 if !compact, let when = Self.when(reminder, now: now) {
                     Text(when).font(.caption).foregroundStyle(late ? Color.red : Color.secondary).lineLimit(1)
                 }

@@ -39,12 +39,14 @@ struct ChecklistTile: View {
     @ViewBuilder private func list(now: Date) -> some View {
         let items = CalendarTileSettings.dueToday(store.reminders, options: tile.options, now: now, calendar: .plate)
         let limit = tile.size == .large || tile.size == .tall ? 8 : tile.size == .wide ? 3 : 2
+        let stats = Habits.stats(store.done, options: tile.options, now: now, calendar: .plate)
         if items.isEmpty {
             Label("All done for today", systemImage: "checkmark.seal.fill").font(.subheadline).foregroundStyle(.green)
         }
         ForEach(items.prefix(limit)) { r in
             ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? style.accent.color, now: now,
-                         compact: tile.size == .small || !(r.dueHasTime || r.isOverdue(now: now, calendar: .plate)))
+                         compact: tile.size == .small || !(r.dueHasTime || r.isOverdue(now: now, calendar: .plate)),
+                         streak: Habits.streak(for: r.title, in: stats))
         }
         if items.count > limit { Text("and \(items.count - limit) more").font(.caption).foregroundStyle(.secondary) }
     }
@@ -62,6 +64,7 @@ struct ChecklistDetailView: View {
         let lists = store.reminderLists.filter { CalendarTileSettings.reminderLists(tile.options).contains($0.id) }
         TimelineView(.everyMinute) { ctx in
             let items = CalendarTileSettings.dueToday(store.reminders, options: tile.options, now: ctx.date, calendar: .plate)
+            let stats = Habits.stats(store.done, options: tile.options, now: ctx.date, calendar: .plate)
             List {
                 if !lists.isEmpty {
                     Section {
@@ -87,7 +90,26 @@ struct ChecklistDetailView: View {
                 Section("Today") {
                     if items.isEmpty { Label("All done for today", systemImage: "checkmark.seal.fill").foregroundStyle(.green) }
                     ForEach(items) { r in
-                        ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? .accentColor, now: ctx.date)
+                        ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? .accentColor, now: ctx.date,
+                                     streak: Habits.streak(for: r.title, in: stats))
+                    }
+                }
+                if !stats.isEmpty {
+                    Section {
+                        ForEach(stats) { s in
+                            HStack(spacing: 12) {
+                                Image(systemName: s.doneToday ? "checkmark.circle.fill" : "circle.dashed")
+                                    .foregroundStyle(s.doneToday ? Color.green : Color.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(s.title)
+                                    Text(Habits.summary(s, now: ctx.date, calendar: .plate)).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                WeekDots(title: s.title, done: store.done, now: ctx.date)
+                            }
+                        }
+                    } header: { Text("How it's going") } footer: {
+                        Text("From what's been ticked off in the last 30 days, here or on anyone's phone.")
                     }
                 }
             }
@@ -102,5 +124,25 @@ struct ChecklistDetailView: View {
         repeats = .never
         // Added from here it's for today: a one-off is due today, a repeating one starts today.
         Task { await store.add(text, to: target, due: Date(), repeats: rep) }
+    }
+}
+
+/// Seven dots for the last seven days, filled where it was done.
+private struct WeekDots: View {
+    let title: String
+    let done: [ReminderDone]
+    let now: Date
+
+    var body: some View {
+        let key = Habits.key(title)
+        let days = Set(done.filter { Habits.key($0.title) == key }.map { Calendar.plate.startOfDay(for: $0.completed) })
+        let today = Calendar.plate.startOfDay(for: now)
+        HStack(spacing: 4) {
+            ForEach((0..<7).reversed(), id: \.self) { back in
+                let day = Calendar.plate.date(byAdding: .day, value: -back, to: today) ?? today
+                Circle().fill(days.contains(day) ? Color.green : Color.secondary.opacity(0.25)).frame(width: 9, height: 9)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
