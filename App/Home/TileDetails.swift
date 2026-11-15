@@ -295,10 +295,7 @@ struct NowPlayingDetailView: View {
     @ObservedObject private var queue = SystemMusicPlayer.shared.queue
 
     var body: some View {
-        let entries = Array(queue)
         let current = queue.currentEntry
-        let index = current.flatMap { c in entries.firstIndex { $0.id == c.id } }
-        let upNext = index.map { Array(entries.dropFirst($0 + 1).prefix(25)) } ?? []
         List {
             Section {
                 VStack(spacing: 16) {
@@ -335,19 +332,6 @@ struct NowPlayingDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical)
-            }
-            if !upNext.isEmpty {
-                Section("Up next") {
-                    ForEach(upNext) { e in
-                        HStack(spacing: 12) {
-                            if let art = e.artwork { ArtworkImage(art, width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 6)) }
-                            VStack(alignment: .leading) {
-                                Text(e.title).lineLimit(1)
-                                if let s = e.subtitle { Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
