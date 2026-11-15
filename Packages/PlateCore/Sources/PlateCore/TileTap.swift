@@ -19,7 +19,7 @@ public enum TileTap: Hashable, Sendable {
 
     public static func action(for kind: TileKind) -> TileTap {
         switch kind {
-        case .weather, .forecast, .sun, .calendar, .nowPlaying, .climate, .battery, .bins, .wifi, .activity:
+        case .weather, .forecast, .sun, .calendar, .nowPlaying, .climate, .battery, .bins, .wifi, .activity, .checklist:
             return .details
         case .todaysMeals: return .open(.plan)
         case .shoppingList: return .open(.shop)

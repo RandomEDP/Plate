@@ -81,6 +81,8 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     case folder
     /// Live departures from a station. `options` hold "from", "to", "ops" and "fast".
     case trains
+    /// Today's to-do list from chosen Reminders lists (repeating ones too), as bullets to tick off. `options["rlists"]`.
+    case checklist
     /// A title across the grid, to split it into sections.
     case heading
     /// An empty gap.
@@ -103,7 +105,8 @@ public enum TileKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// Tiles you can have any number of, each set up differently.
     public var canRepeat: Bool {
         switch self {
-        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder, .calendar: return true
+        case .note, .countdown, .worldClock, .shortcut, .lightShow, .group, .heading, .spacer, .wifi, .trains, .folder, .calendar,
+             .checklist: return true
         default: return false
         }
     }
@@ -192,6 +195,7 @@ public struct DashboardTile: Codable, Hashable, Sendable, Identifiable {
              .wifi, .trains: return .large
         case .nowPlaying, .useSoon, .note, .room, .weather, .timer, .bins, .climate, .forecast, .activity, .command,
              .heading, .cookNow, .macros: return .wide
+        case .checklist: return .tall
         default: return .small
         }
     }

@@ -68,3 +68,49 @@ final class CalendarRemindersTests: XCTestCase {
         XCTAssertTrue(CalendarTileSettings.undated(reminders, options: ["rlists": "home", "undated": "0"]).isEmpty)
     }
 }
+
+/// The "Today's list" tile: today's reminders, repeating ones included, as bullets.
+final class TodaysListTests: XCTestCase {
+    private var cal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Europe/London")!
+        return c
+    }()
+
+    private func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute))!
+    }
+
+    func testTodaysListOrder() {
+        let now = at(19, 13)   // a Thursday
+        let reminders = [
+            ReminderItem(id: "shake", listId: "home", title: "Drink a protein shake", due: at(19, 0)),
+            ReminderItem(id: "bins", listId: "home", title: "Take the bins out", due: at(19, 19), dueHasTime: true),
+            ReminderItem(id: "plants", listId: "home", title: "Water plants", due: at(18, 0)),
+            ReminderItem(id: "pills", listId: "home", title: "Vitamins", due: at(19, 9), dueHasTime: true),
+            ReminderItem(id: "tomorrow", listId: "home", title: "Tomorrow's", due: at(20, 9), dueHasTime: true),
+            ReminderItem(id: "shelf", listId: "home", title: "Fix shelf"),
+            ReminderItem(id: "work", listId: "work", title: "Other list", due: at(19, 0)),
+        ]
+        let list = CalendarTileSettings.dueToday(reminders, options: ["rlists": "home"], now: now, calendar: cal)
+        XCTAssertEqual(list.map(\.id), ["plants", "pills", "shake", "bins", "shelf"],
+                       "Overdue first, then today's untimed, then by time, then undated")
+        let datedOnly = CalendarTileSettings.dueToday(reminders, options: ["rlists": "home", "undated": "0"], now: now, calendar: cal)
+        XCTAssertFalse(datedOnly.contains { $0.id == "shelf" })
+        XCTAssertTrue(CalendarTileSettings.dueToday(reminders, options: [:], now: now, calendar: cal).isEmpty, "No list chosen yet")
+    }
+
+    func testRepeatWording() {
+        let thursday = at(19, 9)
+        XCTAssertEqual(ReminderRepeat.weekly.title(startingOn: thursday, calendar: cal), "Every Thursday")
+        XCTAssertEqual(ReminderRepeat.fortnightly.title(startingOn: thursday, calendar: cal), "Every other Thursday")
+        XCTAssertEqual(ReminderRepeat.daily.title(startingOn: thursday, calendar: cal), "Every day")
+        XCTAssertEqual(ReminderRepeat.never.title(startingOn: thursday, calendar: cal), "Just once")
+    }
+
+    func testTheListTileOpensUp() {
+        XCTAssertEqual(TileTap.action(for: .checklist), .details)
+        XCTAssertEqual(DashboardTile.defaultSize(for: .checklist), .tall)
+        XCTAssertTrue(TileKind.checklist.canRepeat)
+    }
+}

@@ -290,6 +290,9 @@ private struct MoreTilePicker: View {
                 AddRow(tile: DashboardTile(kind: .calendar, title: "Calendar",
                                            subtitle: "Coming events from the calendars you choose, shared ones too. Add one per calendar if you like"),
                        symbol: "calendar")
+                AddRow(tile: DashboardTile(kind: .checklist, title: "Today's list",
+                                           subtitle: "Today's reminders from a list you choose (a shared one too), repeating ones included, to tick off"),
+                       symbol: "checklist.checked")
                 AddRow(tile: DashboardTile(kind: .clock, title: "Clock", subtitle: "Digital, analogue or in words"), symbol: "clock")
                 AddRow(tile: DashboardTile(kind: .weather, title: "Weather", subtitle: "Now, today's high and low, and rain on the way"), symbol: "cloud.sun")
                 AddRow(tile: DashboardTile(kind: .forecast, title: "This week", subtitle: "The next few days of weather"), symbol: "calendar.day.timeline.left")

@@ -145,7 +145,11 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   key covers it (401/403 turns that off for the session). Tapping any other non-button tile follows `TileTap` (PlateCore):
   a sheet from `TileDetails.swift`, or a jump to a Plate tab; add a case there with each new display-only `TileKind`.
   The calendar tile can mix in reminders from chosen Reminders lists (`rlists` option, `CalendarTileSettings.agenda`,
-  Ethan 15 November 2026, for a shared household list); `CalendarStore` reads them and ticks them off in EventKit. Music uses `SystemMusicPlayer`, so the dashboard follows whatever the Music app
+  Ethan 15 November 2026, for a shared household list); `CalendarStore` reads them and ticks them off in EventKit.
+  The `checklist` tile ("Today's list", `ChecklistTile.swift`) shows `CalendarTileSettings.dueToday`; items added from it
+  can repeat (`ReminderRepeat` → `EKRecurrenceRule`), so Reminders brings them back after they're ticked off.
+  Tracking (Ethan chose to keep Apple Reminders, 15 November 2026): `Habits` (PlateCore) turns the last 30 days of completed
+  reminders (`CalendarStore.done`, ticks from any device) into streaks and "done 5 of the last 7 days"; Plate stores nothing extra. Music uses `SystemMusicPlayer`, so the dashboard follows whatever the Music app
   is playing (Ethan found `ApplicationMusicPlayer` didn't, 12 November 2026). Devices are still set up and
   automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The weather tile
   (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
