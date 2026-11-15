@@ -5,6 +5,7 @@ import PlateCore
 import SwiftUI
 
 /// One tile on the dashboard. In edit mode taps do nothing, so tiles can be moved and resized without switching things.
+/// Out of edit mode, tapping a tile that isn't a button opens more about it (`TileTapModifier`).
 struct TileView: View {
     let tile: DashboardTile
     let editing: Bool
@@ -12,6 +13,7 @@ struct TileView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .modifier(TileTapModifier(tile: tile, enabled: !editing))
             .environment(\.tileTint, tile.tint)
             .environment(\.tileIcon, tile.icon)
     }

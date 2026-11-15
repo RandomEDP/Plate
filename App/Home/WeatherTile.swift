@@ -19,6 +19,12 @@ final class WeatherStore {
         var sunset: Date?
         var tomorrowSunrise: Date?
         var fetched: Date
+        var feelsLike: Double?
+        /// 0 to 100.
+        var humidity: Int?
+        var windMph: Int?
+        var windDirection: String?
+        var uvIndex: Int?
     }
 
     var now: Now?
@@ -61,7 +67,7 @@ final class WeatherStore {
                 condition: current.condition.description,
                 hours: hourly.forecast.prefix(36).map {
                     HourForecast(date: $0.date, temperature: $0.temperature.converted(to: .celsius).value,
-                                 precipitationChance: $0.precipitationChance)
+                                 precipitationChance: $0.precipitationChance, symbol: $0.symbolName)
                 },
                 days: days.map {
                     DayForecast(date: $0.date, high: $0.highTemperature.converted(to: .celsius).value,
@@ -70,7 +76,12 @@ final class WeatherStore {
                 },
                 sunrise: days.first?.sun.sunrise, sunset: days.first?.sun.sunset,
                 tomorrowSunrise: days.dropFirst().first?.sun.sunrise,
-                fetched: Date())
+                fetched: Date(),
+                feelsLike: current.apparentTemperature.converted(to: .celsius).value,
+                humidity: Int((current.humidity * 100).rounded()),
+                windMph: Int(current.wind.speed.converted(to: .milesPerHour).value.rounded()),
+                windDirection: current.wind.compassDirection.abbreviation,
+                uvIndex: current.uvIndex.value)
             problem = nil
             if attribution == nil { attribution = try? await WeatherService.shared.attribution }
         } catch {
@@ -183,8 +194,15 @@ struct WeatherTile: View {
         .environment(\.locale, Locale(identifier: "en_GB"))
     }
 
-    /// Apple requires its Weather mark and a link to its data sources wherever WeatherKit data is shown.
-    @ViewBuilder private var attributionMark: some View {
+    @ViewBuilder private var attributionMark: some View { WeatherAttributionMark() }
+}
+
+/// Apple requires its Weather mark and a link to its data sources wherever WeatherKit data is shown.
+struct WeatherAttributionMark: View {
+    @Environment(WeatherStore.self) private var weather
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
         if let a = weather.attribution {
             Link(destination: a.legalPageURL) {
                 AsyncImage(url: scheme == .dark ? a.combinedMarkDarkURL : a.combinedMarkLightURL) { image in

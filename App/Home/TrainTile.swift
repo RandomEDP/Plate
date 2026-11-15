@@ -84,6 +84,25 @@ final class TrainStore {
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
+    /// Whether this key covers "Service Details" (a train's whole run, including where it's been). Tried the first
+    /// time a train is tapped; if National Rail says no, the board's own list of stops is used from then on.
+    @ObservationIgnored private var serviceDetailsWork = true
+
+    /// One train's full run, or nil to make do with the stops on the board. Carries only the train's id.
+    func service(_ id: String) async -> TrainDeparture? {
+        guard serviceDetailsWork, let key = SecretStore.get(Self.keyAccount), let url = Trains.serviceURL(id: id) else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.setValue(key, forHTTPHeaderField: "x-apikey")
+        request.setValue("Plate iOS app", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await URLSession.shared.data(for: request) else { return nil }
+        switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
+        case 200: return try? Trains.parseService(data, id: id)
+        case 401, 403: serviceDetailsWork = false; return nil
+        default: return nil
+        }
+    }
+
     /// The time of day on the railway's clock, as minutes after midnight.
     static func nowMinutes(_ date: Date = Date()) -> Int {
         var cal = Calendar(identifier: .gregorian)
@@ -96,6 +115,7 @@ final class TrainStore {
 struct TrainTile: View {
     let tile: DashboardTile
     @Environment(\.dashStyle) private var style
+    @State private var picked: PickedTrain?
     private var store: TrainStore { TrainStore.shared }
 
     var body: some View {
@@ -141,6 +161,11 @@ struct TrainTile: View {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+        .sheet(item: $picked) { p in
+            TrainStopsView(picked: p)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private func rowsEach(_ journeys: Int) -> Int {
@@ -164,7 +189,16 @@ struct TrainTile: View {
                 let rows = Trains.rows(board, query: query, nowMinutes: now)
                 VStack(alignment: .leading, spacing: 7) {
                     if rows.isEmpty { hint("No trains in the next two hours.") }
-                    ForEach(rows.prefix(count)) { r in row(r, now: now, compact: compact) }
+                    ForEach(rows.prefix(count)) { r in
+                        // Tap a train to see every stop it makes and when.
+                        Button {
+                            picked = PickedTrain(query: query, station: board.station, departure: r.departure)
+                        } label: {
+                            row(r, now: now, compact: compact).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows where it stops and when")
+                    }
                 }
             }
             if let problem = entry.problem, !compact {

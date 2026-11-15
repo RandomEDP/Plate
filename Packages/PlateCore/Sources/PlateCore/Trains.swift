@@ -63,8 +63,13 @@ public struct TrainCall: Hashable, Sendable {
     public var scheduled: String
     /// "On time", a new time, "Delayed" or "Cancelled".
     public var expected: String?
-    public init(name: String, crs: String, scheduled: String, expected: String? = nil) {
+    /// When it really got there, "HH:mm": only for stops it has already been to.
+    public var actual: String?
+    /// This stop is cancelled, even if the rest of the train runs.
+    public var cancelled: Bool
+    public init(name: String, crs: String, scheduled: String, expected: String? = nil, actual: String? = nil, cancelled: Bool = false) {
         self.name = name; self.crs = crs; self.scheduled = scheduled; self.expected = expected
+        self.actual = actual; self.cancelled = cancelled
     }
 }
 
@@ -84,12 +89,18 @@ public struct TrainDeparture: Hashable, Sendable, Identifiable {
     public var calls: [TrainCall]
     /// Number of carriages, when the feed says.
     public var length: Int?
+    /// Where it stopped before this station, in order. Only the fuller service details reply has these.
+    public var previous: [TrainCall]
+    /// Why it's late or cancelled, when the feed says ("This train has been delayed by a signalling problem").
+    public var reason: String?
 
     public init(id: String, scheduled: String, expected: String, platform: String? = nil, operatorName: String, operatorCode: String,
-                destination: String, cancelled: Bool = false, calls: [TrainCall] = [], length: Int? = nil) {
+                destination: String, cancelled: Bool = false, calls: [TrainCall] = [], length: Int? = nil,
+                previous: [TrainCall] = [], reason: String? = nil) {
         self.id = id; self.scheduled = scheduled; self.expected = expected; self.platform = platform
         self.operatorName = operatorName; self.operatorCode = operatorCode; self.destination = destination
         self.cancelled = cancelled; self.calls = calls; self.length = length
+        self.previous = previous; self.reason = reason
     }
 
     /// The time it's now expected to leave, "HH:mm": the new time if there is one, otherwise the timetabled one.
@@ -323,42 +334,69 @@ public enum Trains {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw TrainError.unreadable
         }
-        func text(_ v: Any?) -> String? {
-            if let s = v as? String { let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
-            if let n = v as? NSNumber { return n.stringValue }
-            return nil
-        }
-        func flag(_ v: Any?) -> Bool { (v as? Bool) ?? (v as? NSNumber)?.boolValue ?? false }
-        func whole(_ v: Any?) -> Int? { (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) } }
-        func calls(_ v: Any?) -> [TrainCall] {
-            // The feed nests the stops one level down ("callingPoint"); a train that splits has several lists, and the
-            // first is the main one.
-            var points: [[String: Any]] = []
-            if let lists = v as? [[String: Any]] {
-                if let inner = lists.first?["callingPoint"] as? [[String: Any]] { points = inner }
-                else if lists.first?["crs"] != nil { points = lists }
-            }
-            return points.compactMap { p in
-                guard let crs = text(p["crs"]), let st = text(p["st"]) else { return nil }
-                return TrainCall(name: text(p["locationName"]) ?? crs, crs: crs.uppercased(), scheduled: st, expected: text(p["et"]) ?? text(p["at"]))
-            }
-        }
         let services = (root["trainServices"] as? [[String: Any]]) ?? []
-        let departures: [TrainDeparture] = services.enumerated().compactMap { i, s in
-            guard let std = text(s["std"]) else { return nil }
-            let destinations = (s["destination"] as? [[String: Any]])?.compactMap { text($0["locationName"]) } ?? []
-            return TrainDeparture(
-                id: text(s["serviceID"]) ?? text(s["serviceIdUrlSafe"]) ?? "\(i)-\(std)",
-                scheduled: std, expected: text(s["etd"]) ?? "On time", platform: text(s["platform"]),
-                operatorName: text(s["operator"]) ?? "", operatorCode: (text(s["operatorCode"]) ?? "").uppercased(),
-                destination: destinations.isEmpty ? "Unknown" : destinations.joined(separator: " & "),
-                cancelled: flag(s["isCancelled"]), calls: calls(s["subsequentCallingPoints"]),
-                length: whole(s["length"]).flatMap { $0 > 0 ? $0 : nil })
-        }
+        let departures: [TrainDeparture] = services.enumerated().compactMap { i, s in service(s, fallbackID: "\(i)") }
         let messages = ((root["nrccMessages"] as? [[String: Any]]) ?? []).compactMap { m in
             (text(m["Value"]) ?? text(m["value"]) ?? text(m["xhtmlMessage"])).map(plain)
         }
         return TrainBoard(station: text(root["locationName"]) ?? "", departures: departures, messages: messages)
+    }
+
+    /// The address for one train's full run (where it's been as well as where it's going). This is a separate
+    /// product on the Rail Data Marketplace ("Service Details"), so a key may not cover it; the board's own stops are
+    /// used then. Carries only the train's id from the board.
+    public static func serviceURL(id: String) -> URL? {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        guard !id.isEmpty, let safe = id.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: "https://\(host)/1010-service-details1_2/LDBWS/api/20220120/GetServiceDetails/\(safe)")
+    }
+
+    /// Reads the service details reply for one train, as it is at `station` (the board it was tapped on).
+    public static func parseService(_ data: Data, id: String) throws -> TrainDeparture {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var d = service(root, fallbackID: id) else { throw TrainError.unreadable }
+        d.id = id
+        if d.destination == "Unknown", let last = d.calls.last { d.destination = last.name }
+        return d
+    }
+
+    private static func text(_ v: Any?) -> String? {
+        if let s = v as? String { let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
+        if let n = v as? NSNumber { return n.stringValue }
+        return nil
+    }
+    private static func flag(_ v: Any?) -> Bool { (v as? Bool) ?? (v as? NSNumber)?.boolValue ?? (text(v)?.lowercased() == "true") }
+    private static func whole(_ v: Any?) -> Int? { (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) } }
+
+    private static func calls(_ v: Any?) -> [TrainCall] {
+        // The feed nests the stops one level down ("callingPoint"); a train that splits has several lists, and the
+        // first is the main one.
+        var points: [[String: Any]] = []
+        if let lists = v as? [[String: Any]] {
+            if let inner = lists.first?["callingPoint"] as? [[String: Any]] { points = inner }
+            else if lists.first?["crs"] != nil { points = lists }
+        }
+        return points.compactMap { p in
+            guard let crs = text(p["crs"]), let st = text(p["st"]) else { return nil }
+            return TrainCall(name: text(p["locationName"]) ?? crs, crs: crs.uppercased(), scheduled: st,
+                             expected: text(p["et"]), actual: text(p["at"]), cancelled: flag(p["isCancelled"]))
+        }
+    }
+
+    /// One train, from a board row or from the service details reply (which says "atd" once it has left).
+    private static func service(_ s: [String: Any], fallbackID: String) -> TrainDeparture? {
+        guard let std = text(s["std"]) else { return nil }
+        let destinations = (s["destination"] as? [[String: Any]])?.compactMap { text($0["locationName"]) } ?? []
+        let cancelled = flag(s["isCancelled"])
+        let reason = cancelled ? (text(s["cancelReason"]) ?? text(s["delayReason"])) : text(s["delayReason"])
+        return TrainDeparture(
+            id: text(s["serviceID"]) ?? text(s["serviceIdUrlSafe"]) ?? "\(fallbackID)-\(std)",
+            scheduled: std, expected: text(s["etd"]) ?? text(s["atd"]) ?? "On time", platform: text(s["platform"]),
+            operatorName: text(s["operator"]) ?? "", operatorCode: (text(s["operatorCode"]) ?? "").uppercased(),
+            destination: destinations.isEmpty ? "Unknown" : destinations.joined(separator: " & "),
+            cancelled: cancelled, calls: calls(s["subsequentCallingPoints"]),
+            length: whole(s["length"]).flatMap { $0 > 0 ? $0 : nil },
+            previous: calls(s["previousCallingPoints"]), reason: reason)
     }
 
     /// Takes the HTML out of a station notice.

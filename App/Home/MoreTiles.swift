@@ -234,7 +234,8 @@ final class CalendarStore {
         events = found.prefix(400).enumerated().map { i, e in
             CalendarEvent(id: "\(i)-\(e.eventIdentifier ?? "")-\(e.startDate.timeIntervalSince1970)",
                           calendarId: e.calendar.calendarIdentifier, title: e.title ?? "Event",
-                          start: e.startDate, end: e.endDate, allDay: e.isAllDay, location: e.location)
+                          start: e.startDate, end: e.endDate, allDay: e.isAllDay, location: e.location,
+                          notes: e.hasNotes ? e.notes : nil)
         }
     }
 }

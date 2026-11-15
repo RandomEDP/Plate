@@ -140,7 +140,10 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   a case in `TileEditorView.particular`; per-tile settings go in `tile.options`. The guest Wi-Fi password lives in the
   keychain (`SecretStore`), never in the household file. The trains tile (`Trains.swift`, `TrainTile.swift`) reads National
   Rail's Live Departure Board from `api1.raildata.org.uk` with the user's own key (keychain, header `x-apikey`); the
-  request carries only station codes. Music uses `SystemMusicPlayer`, so the dashboard follows whatever the Music app
+  request carries only station codes. Tapping a train opens `TrainStopsView` (every stop from `TrainStops.list`): the
+  board's own stops, or the whole run from National Rail's separate "Service Details" product (`Trains.serviceURL`) when the
+  key covers it (401/403 turns that off for the session). Tapping any other non-button tile follows `TileTap` (PlateCore):
+  a sheet from `TileDetails.swift`, or a jump to a Plate tab; add a case there with each new display-only `TileKind`. Music uses `SystemMusicPlayer`, so the dashboard follows whatever the Music app
   is playing (Ethan found `ApplicationMusicPlayer` didn't, 12 November 2026). Devices are still set up and
   automated in Apple's Home app. "Pinned albums" means Apple Music albums (Ethan, 12 November 2026). The weather tile
   (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
