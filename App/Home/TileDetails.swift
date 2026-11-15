@@ -225,24 +225,60 @@ struct WeatherDetailView: View {
 
 struct CalendarDetailView: View {
     let tile: DashboardTile
+    @State private var newReminder = ""
     private var store: CalendarStore { CalendarStore.shared }
 
     var body: some View {
         TimelineView(.everyMinute) { ctx in
-            let events = CalendarTileSettings.events(store.events, options: wider, now: ctx.date, calendar: .plate)
-            let days = Dictionary(grouping: events) { Calendar.plate.startOfDay(for: $0.start) }
+            let items = CalendarTileSettings.agenda(events: store.events, reminders: store.reminders, options: wider, now: ctx.date,
+                                                    calendar: .plate)
+            let todo = CalendarTileSettings.undated(store.reminders, options: tile.options)
+            let days = Dictionary(grouping: items) { $0.day(now: ctx.date, calendar: .plate) }
+            let lists = CalendarTileSettings.reminderLists(tile.options)
             List {
-                if events.isEmpty {
+                if let list = store.reminderLists.first(where: { lists.contains($0.id) }) {
+                    Section {
+                        HStack {
+                            Image(systemName: "plus.circle.fill").foregroundStyle(list.color)
+                            TextField("New reminder in \(list.title)", text: $newReminder)
+                                .submitLabel(.done)
+                                .onSubmit { add(to: list.id) }
+                        }
+                    }
+                }
+                if items.isEmpty && todo.isEmpty {
                     Text("Nothing in the next fortnight.").foregroundStyle(.secondary)
                 }
                 ForEach(days.keys.sorted(), id: \.self) { day in
                     Section(CalendarTileSettings.dayHeading(day, now: ctx.date, calendar: .plate)) {
-                        ForEach(days[day] ?? []) { e in EventRow(event: e, now: ctx.date) }
+                        ForEach(days[day] ?? []) { item in
+                            switch item {
+                            case .event(let e): EventRow(event: e, now: ctx.date)
+                            case .reminder(let r):
+                                ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? .accentColor, now: ctx.date)
+                            }
+                        }
+                    }
+                }
+                if !todo.isEmpty {
+                    Section("To do") {
+                        ForEach(todo) { r in
+                            ReminderLine(reminder: r, colour: store.listColours[r.listId] ?? .accentColor, now: ctx.date)
+                        }
                     }
                 }
             }
         }
-        .task { await store.refresh() }
+        .task {
+            await store.refresh()
+            if !CalendarTileSettings.reminderLists(tile.options).isEmpty { await store.refreshReminders(force: true) }
+        }
+    }
+
+    private func add(to listId: String) {
+        let title = newReminder
+        newReminder = ""
+        Task { await store.add(title, to: listId) }
     }
 
     /// The tile's calendars, but a fortnight ahead (or more, if the tile already looks further).
