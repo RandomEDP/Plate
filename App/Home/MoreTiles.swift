@@ -540,9 +540,28 @@ struct ReminderListSettings: View {
 /// The calendar tile's settings: which calendars (shared ones included) and how far ahead.
 struct CalendarSettings: View {
     @Binding var options: [String: String]
+    /// Today's list: a switch for events instead of "how far ahead", and its own Reminders list settings.
+    var forChecklist = false
     private var store: CalendarStore { CalendarStore.shared }
 
     var body: some View {
+        if forChecklist {
+            Section {
+                Toggle("Show today's calendar events", isOn: Binding(get: { CalendarTileSettings.showsEvents(options) },
+                                                                    set: { options["events"] = $0 ? nil : "0" }))
+            } header: { Text("Calendar") } footer: {
+                Text("Today's events are slotted in by time between the reminders.")
+            }
+            if CalendarTileSettings.showsEvents(options) { calendarsSection }
+            ReminderListSettings(options: $options, forChecklist: true)
+        } else {
+            daysSection
+            calendarsSection
+            ReminderListSettings(options: $options)
+        }
+    }
+
+    private var daysSection: some View {
         Section {
             Picker("Show", selection: Binding(get: { CalendarTileSettings.days(options) },
                                               set: { options["days"] = $0 == CalendarTileSettings.defaultDays ? nil : "\($0)" })) {
@@ -551,6 +570,9 @@ struct CalendarSettings: View {
                 }
             }
         } header: { Text("How far ahead") }
+    }
+
+    private var calendarsSection: some View {
         Section {
             if store.canRead {
                 let all = store.calendars.map(\.id)
@@ -582,7 +604,6 @@ struct CalendarSettings: View {
             Text("Every calendar on this iPad is here, including ones shared with you. A calendar someone shares in iCloud appears once you've accepted the invitation in the Calendar app. Google and Outlook calendars appear once the account is added in Settings → Calendar → Accounts.")
         }
         .task { await store.refresh(force: true) }
-        ReminderListSettings(options: $options)
     }
 
     private func tick(_ title: String, _ on: Bool) -> some View {

@@ -114,3 +114,41 @@ final class TodaysListTests: XCTestCase {
         XCTAssertTrue(TileKind.checklist.canRepeat)
     }
 }
+
+/// Today's list with today's calendar events in it.
+final class TodaysListEventsTests: XCTestCase {
+    private var cal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Europe/London")!
+        return c
+    }()
+
+    private func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute))!
+    }
+
+    func testEventsSitAmongTodaysReminders() {
+        let now = at(19, 13)
+        let events = [
+            CalendarEvent(id: "lunch", calendarId: "c", title: "Lunch", start: at(19, 12), end: at(19, 12, 30)),   // over
+            CalendarEvent(id: "gym", calendarId: "c", title: "Gym", start: at(19, 17), end: at(19, 18)),
+            CalendarEvent(id: "holiday", calendarId: "c", title: "Day off", start: at(19, 0), end: at(20, 0), allDay: true),
+            CalendarEvent(id: "tomorrow", calendarId: "c", title: "Tomorrow", start: at(20, 9), end: at(20, 10)),
+            CalendarEvent(id: "hidden", calendarId: "work", title: "Work", start: at(19, 15), end: at(19, 16)),
+        ]
+        let reminders = [
+            ReminderItem(id: "shake", listId: "home", title: "Drink a protein shake", due: at(19, 0)),
+            ReminderItem(id: "bins", listId: "home", title: "Take the bins out", due: at(19, 19), dueHasTime: true),
+            ReminderItem(id: "shelf", listId: "home", title: "Fix shelf"),
+        ]
+        let options = ["rlists": "home", "cals": "c"]
+        let list = CalendarTileSettings.todayList(events: events, reminders: reminders, options: options, now: now, calendar: cal)
+        XCTAssertEqual(list.map(\.id), ["e-holiday", "r-shake", "e-gym", "r-bins", "r-shelf"])
+        var noEvents = options
+        noEvents["events"] = "0"
+        XCTAssertEqual(CalendarTileSettings.todayList(events: events, reminders: reminders, options: noEvents, now: now, calendar: cal)
+            .map(\.id), ["r-shake", "r-bins", "r-shelf"])
+        XCTAssertEqual(CalendarTileSettings.todayList(events: events, reminders: reminders, options: ["cals": "c"], now: now, calendar: cal)
+            .map(\.id), ["e-holiday", "e-gym"], "Events alone, before any list is chosen")
+    }
+}

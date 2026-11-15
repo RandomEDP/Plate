@@ -291,7 +291,7 @@ struct CalendarDetailView: View {
     }
 }
 
-private struct EventRow: View {
+struct EventRow: View {
     let event: CalendarEvent
     let now: Date
     private var store: CalendarStore { CalendarStore.shared }
