@@ -295,7 +295,7 @@ struct NowPlayingDetailView: View {
     @ObservedObject private var queue = SystemMusicPlayer.shared.queue
 
     var body: some View {
-        let entries = Array(queue.entries)
+        let entries = Array(queue)
         let current = queue.currentEntry
         let index = current.flatMap { c in entries.firstIndex { $0.id == c.id } }
         let upNext = index.map { Array(entries.dropFirst($0 + 1).prefix(25)) } ?? []
