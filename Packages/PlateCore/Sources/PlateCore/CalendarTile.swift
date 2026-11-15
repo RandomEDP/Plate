@@ -10,10 +10,13 @@ public struct CalendarEvent: Hashable, Sendable, Identifiable {
     public var end: Date
     public var allDay: Bool
     public var location: String?
+    /// The event's notes, shown when it's tapped open.
+    public var notes: String?
 
-    public init(id: String, calendarId: String, title: String, start: Date, end: Date, allDay: Bool = false, location: String? = nil) {
+    public init(id: String, calendarId: String, title: String, start: Date, end: Date, allDay: Bool = false, location: String? = nil,
+                notes: String? = nil) {
         self.id = id; self.calendarId = calendarId; self.title = title; self.start = start; self.end = end
-        self.allDay = allDay; self.location = location
+        self.allDay = allDay; self.location = location; self.notes = notes
     }
 }
 

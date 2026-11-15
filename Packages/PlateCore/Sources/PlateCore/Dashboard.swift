@@ -708,8 +708,10 @@ public struct HourForecast: Hashable, Sendable {
     public var temperature: Double
     /// Chance of rain or snow, 0 to 1.
     public var precipitationChance: Double
-    public init(date: Date, temperature: Double, precipitationChance: Double) {
-        self.date = date; self.temperature = temperature; self.precipitationChance = precipitationChance
+    /// The SF Symbol for that hour's weather, for the hour-by-hour list.
+    public var symbol: String?
+    public init(date: Date, temperature: Double, precipitationChance: Double, symbol: String? = nil) {
+        self.date = date; self.temperature = temperature; self.precipitationChance = precipitationChance; self.symbol = symbol
     }
 }
 
