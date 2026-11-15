@@ -92,3 +92,112 @@ public enum CalendarTileSettings {
         return "\(short[w]) \(c.day ?? 1) \(months[((c.month ?? 1) - 1 + 12) % 12])"
     }
 }
+
+// MARK: Reminders
+
+/// A reminder as the calendar tile needs it, from a Reminders list (shared ones included). The app fills these in.
+public struct ReminderItem: Hashable, Sendable, Identifiable {
+    public var id: String
+    public var listId: String
+    public var title: String
+    /// When it's due, if it says. `dueHasTime` is false for a reminder due on a day but at no particular time.
+    public var due: Date?
+    public var dueHasTime: Bool
+    public var notes: String?
+    /// 0 is none; 1 is high, 5 medium, 9 low (Apple's numbers).
+    public var priority: Int
+
+    public init(id: String, listId: String, title: String, due: Date? = nil, dueHasTime: Bool = false, notes: String? = nil,
+                priority: Int = 0) {
+        self.id = id; self.listId = listId; self.title = title; self.due = due; self.dueHasTime = dueHasTime
+        self.notes = notes; self.priority = priority
+    }
+
+    /// Due before now (or, with no time, before today).
+    public func isOverdue(now: Date, calendar: Calendar) -> Bool {
+        guard let due else { return false }
+        return dueHasTime ? due < now : calendar.startOfDay(for: due) < calendar.startOfDay(for: now)
+    }
+
+    /// High first, then medium, low and none.
+    var rank: Int { priority == 0 ? 10 : priority }
+}
+
+/// One line on the calendar tile: an event or a reminder.
+public enum AgendaItem: Hashable, Sendable, Identifiable {
+    case event(CalendarEvent)
+    case reminder(ReminderItem)
+
+    public var id: String {
+        switch self {
+        case .event(let e): return "e-" + e.id
+        case .reminder(let r): return "r-" + r.id
+        }
+    }
+
+    /// The day it's listed under: today for anything overdue or already started.
+    public func day(now: Date, calendar: Calendar) -> Date {
+        let today = calendar.startOfDay(for: now)
+        switch self {
+        case .event(let e): return calendar.startOfDay(for: max(e.start, today))
+        case .reminder(let r): return calendar.startOfDay(for: max(r.due ?? today, today))
+        }
+    }
+}
+
+extension CalendarTileSettings {
+    /// The Reminders lists a tile shows ("rlists"). Unlike calendars, none chosen means no reminders.
+    public static func reminderLists(_ options: [String: String]) -> Set<String> {
+        Set((options["rlists"] ?? "").split(separator: "\n").map(String.init).filter { !$0.isEmpty })
+    }
+
+    public static func toggleReminderList(_ id: String, in options: inout [String: String]) {
+        var chosen = reminderLists(options)
+        if chosen.contains(id) { chosen.remove(id) } else { chosen.insert(id) }
+        options["rlists"] = chosen.isEmpty ? nil : chosen.sorted().joined(separator: "\n")
+    }
+
+    /// Whether reminders with no due date are listed too, under "To do" ("undated", on unless turned off).
+    public static func showsUndated(_ options: [String: String]) -> Bool { options["undated"] != "0" }
+
+    /// Events and dated reminders together, day by day. On each day: all-day events, then reminders due that day (or
+    /// overdue) with no time, then everything with a time, in time order.
+    public static func agenda(events all: [CalendarEvent], reminders: [ReminderItem], options: [String: String], now: Date,
+                              calendar: Calendar) -> [AgendaItem] {
+        let today = calendar.startOfDay(for: now)
+        let until = calendar.date(byAdding: .day, value: days(options), to: today) ?? now
+        let lists = reminderLists(options)
+        let dated = reminders.filter { r in
+            guard let due = r.due, lists.contains(r.listId) else { return false }
+            return due < until
+        }
+        let items = events(all, options: options, now: now, calendar: calendar).map(AgendaItem.event) + dated.map(AgendaItem.reminder)
+        func order(_ i: AgendaItem) -> (Int, Date, Int, String) {
+            switch i {
+            case .event(let e):
+                return e.allDay ? (0, today, 0, e.title) : (2, max(e.start, now), 0, e.title)
+            case .reminder(let r):
+                // A timed reminder that's overdue sits with the untimed ones at the top of today.
+                if !r.dueHasTime || r.isOverdue(now: now, calendar: calendar) { return (1, r.due ?? today, r.rank, r.title) }
+                return (2, r.due ?? today, r.rank, r.title)
+            }
+        }
+        return items.sorted { a, b in
+            let da = a.day(now: now, calendar: calendar), db = b.day(now: now, calendar: calendar)
+            if da != db { return da < db }
+            let oa = order(a), ob = order(b)
+            if oa.0 != ob.0 { return oa.0 < ob.0 }
+            if oa.1 != ob.1 { return oa.1 < ob.1 }
+            if oa.2 != ob.2 { return oa.2 < ob.2 }
+            return oa.3 < ob.3
+        }
+    }
+
+    /// Reminders from the chosen lists with no due date, most important first.
+    public static func undated(_ reminders: [ReminderItem], options: [String: String]) -> [ReminderItem] {
+        guard showsUndated(options) else { return [] }
+        let lists = reminderLists(options)
+        return reminders.filter { $0.due == nil && lists.contains($0.listId) }
+            .sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+}

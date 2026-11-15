@@ -212,6 +212,74 @@ final class CalendarStore {
     var colours: [String: Color] { Dictionary(calendars.map { ($0.id, $0.color) }, uniquingKeysWith: { a, _ in a }) }
     var canRead: Bool { status == .fullAccess }
 
+    // Reminders: asked for separately, the first time a tile is given a Reminders list.
+    var reminderStatus = EKEventStore.authorizationStatus(for: .reminder)
+    private(set) var reminders: [ReminderItem] = []
+    private(set) var reminderLists: [Source] = []
+    var canReadReminders: Bool { reminderStatus == .fullAccess }
+    var listColours: [String: Color] { Dictionary(reminderLists.map { ($0.id, $0.color) }, uniquingKeysWith: { a, _ in a }) }
+    @ObservationIgnored private var remindersFetched: Date?
+
+    /// Asks to see reminders (once), then reads every reminder not yet done.
+    func refreshReminders(ask: Bool = false, force: Bool = false) async {
+        if reminderStatus == .notDetermined, ask {
+            _ = try? await store.requestFullAccessToReminders()
+            reminderStatus = EKEventStore.authorizationStatus(for: .reminder)
+        }
+        guard canReadReminders else { reminders = []; reminderLists = []; return }
+        if !force, let remindersFetched, Date().timeIntervalSince(remindersFetched) < 60 { return }
+        remindersFetched = Date()
+        reminderLists = store.calendars(for: .reminder).map {
+            Source(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title ?? "On this iPad",
+                   color: Color(cgColor: $0.cgColor), subscribed: false)
+        }
+        .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
+        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
+        let found: [ReminderItem] = await withCheckedContinuation { done in
+            // EventKit answers on its own queue, so the mapping mustn't touch the main actor.
+            store.fetchReminders(matching: predicate) { @Sendable list in
+                done.resume(returning: CalendarStore.items(list ?? []))
+            }
+        }
+        reminders = found
+    }
+
+    nonisolated static func items(_ list: [EKReminder]) -> [ReminderItem] {
+        list.prefix(500).map { r in
+            let comps = r.dueDateComponents
+            let due = comps.flatMap { c -> Date? in
+                var c = c
+                if c.calendar == nil { c.calendar = Calendar.plate }
+                return c.date
+            }
+            return ReminderItem(id: r.calendarItemIdentifier, listId: r.calendar.calendarIdentifier, title: r.title ?? "Reminder",
+                                due: due, dueHasTime: comps?.hour != nil, notes: r.hasNotes ? r.notes : nil, priority: r.priority)
+        }
+    }
+
+    /// Ticks a reminder off (in the Reminders app too, and for everyone the list is shared with).
+    func complete(_ id: String) {
+        guard let r = store.calendarItem(withIdentifier: id) as? EKReminder else { return }
+        r.isCompleted = true
+        do {
+            try store.save(r, commit: true)
+            reminders.removeAll { $0.id == id }
+            Feedback.shared.play(.on)
+        } catch {}
+    }
+
+    /// Adds a reminder to a list, due on `due` if given.
+    func add(_ title: String, to listId: String, due: Date? = nil) async {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let list = store.calendar(withIdentifier: listId) else { return }
+        let r = EKReminder(eventStore: store)
+        r.title = t
+        r.calendar = list
+        if let due { r.dueDateComponents = Calendar.plate.dateComponents([.year, .month, .day], from: due) }
+        try? store.save(r, commit: true)
+        await refreshReminders(force: true)
+    }
+
     /// Reads the next month of events from every calendar. Each tile picks its own calendars and days from these.
     func refresh(force: Bool = false) async {
         if status == .notDetermined {
@@ -262,36 +330,58 @@ struct CalendarTile: View {
         .task {
             while !Task.isCancelled {
                 await calendar.refresh()
+                if !CalendarTileSettings.reminderLists(tile.options).isEmpty { await calendar.refreshReminders() }
                 try? await Task.sleep(for: .seconds(5 * 60))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
-            Task { await calendar.refresh(force: true) }
+            Task {
+                await calendar.refresh(force: true)
+                if !CalendarTileSettings.reminderLists(tile.options).isEmpty { await calendar.refreshReminders(force: true) }
+            }
         }
     }
 
     @ViewBuilder private func list(now: Date) -> some View {
-        let shown = CalendarTileSettings.events(calendar.events, options: tile.options, now: now, calendar: .plate)
+        let items = CalendarTileSettings.agenda(events: calendar.events, reminders: calendar.reminders, options: tile.options,
+                                                now: now, calendar: .plate)
+        let todo = CalendarTileSettings.undated(calendar.reminders, options: tile.options)
         let limit = tile.size == .large || tile.size == .tall ? 7 : tile.size == .wide ? 3 : 2
-        let colours = calendar.colours
-        if shown.isEmpty {
+        let shown = Array(items.prefix(limit))
+        let colours = calendar.colours, listColours = calendar.listColours
+        if items.isEmpty && todo.isEmpty {
             let days = CalendarTileSettings.days(tile.options)
             Text(days == 1 ? "Nothing else today." : "Nothing in the next \(days) days.")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(shown.prefix(limit).enumerated()), id: \.element.id) { i, e in
-                let heading = CalendarTileSettings.dayHeading(e.start, now: now, calendar: .plate)
-                if tile.size != .small, i == 0 || heading != CalendarTileSettings.dayHeading(shown[i - 1].start, now: now, calendar: .plate) {
-                    Text(heading).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, i == 0 ? 0 : 4)
+            ForEach(Array(shown.enumerated()), id: \.element.id) { i, item in
+                let day = item.day(now: now, calendar: .plate)
+                if tile.size != .small, i == 0 || day != shown[i - 1].day(now: now, calendar: .plate) {
+                    Text(CalendarTileSettings.dayHeading(day, now: now, calendar: .plate))
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, i == 0 ? 0 : 4)
                 }
-                HStack(spacing: 8) {
-                    Capsule().fill(colours[e.calendarId] ?? style.accent.color).frame(width: 4, height: 30)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(e.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                        Text(detail(e, now: now)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                switch item {
+                case .event(let e):
+                    HStack(spacing: 8) {
+                        Capsule().fill(colours[e.calendarId] ?? style.accent.color).frame(width: 4, height: 30)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(e.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                            Text(detail(e, now: now)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
                     }
+                case .reminder(let r):
+                    ReminderLine(reminder: r, colour: listColours[r.listId] ?? style.accent.color, now: now, compact: tile.size == .small)
                 }
+            }
+            // Reminders with no date fill any room left over.
+            let room = limit - shown.count
+            if room > 0, !todo.isEmpty, tile.size != .small {
+                Text("To do").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, shown.isEmpty ? 0 : 4)
+                ForEach(todo.prefix(room)) { r in
+                    ReminderLine(reminder: r, colour: listColours[r.listId] ?? style.accent.color, now: now, compact: true)
+                }
+                if todo.count > room { Text("and \(todo.count - room) more").font(.caption).foregroundStyle(.secondary) }
             }
         }
     }
@@ -309,6 +399,53 @@ struct CalendarTile: View {
         var parts = [tile.size == .small ? CalendarTileSettings.dayHeading(e.start, now: now, calendar: .plate) + ", " + time : time]
         if tile.size != .small, let place = e.location?.split(separator: "\n").first, !place.isEmpty { parts.append(String(place)) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A reminder on the calendar tile: a circle to tick it off, then what it is and when it's due.
+struct ReminderLine: View {
+    let reminder: ReminderItem
+    let colour: Color
+    let now: Date
+    var compact = false
+    @State private var ticked = false
+
+    var body: some View {
+        let late = reminder.isOverdue(now: now, calendar: .plate)
+        HStack(spacing: 8) {
+            Button {
+                withAnimation { ticked = true }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    CalendarStore.shared.complete(reminder.id)
+                }
+            } label: {
+                Image(systemName: ticked ? "checkmark.circle.fill" : "circle")
+                    .font(.title3).foregroundStyle(colour)
+                    .frame(width: 26, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Tick off \(reminder.title)")
+            VStack(alignment: .leading, spacing: 0) {
+                Text(reminder.title).font(.subheadline.weight(.medium)).lineLimit(1).strikethrough(ticked)
+                    .foregroundStyle(ticked ? Color.secondary : Color.primary)
+                if !compact, let when = Self.when(reminder, now: now) {
+                    Text(when).font(.caption).foregroundStyle(late ? Color.red : Color.secondary).lineLimit(1)
+                }
+            }
+        }
+    }
+
+    /// "Reminder", "Due 17:00", "Overdue since Friday".
+    static func when(_ r: ReminderItem, now: Date) -> String? {
+        guard let due = r.due else { return nil }
+        if r.isOverdue(now: now, calendar: .plate) {
+            return Calendar.plate.isDate(due, inSameDayAs: now)
+                ? "Overdue since \(HeaderClock.timeText(due, calendar: .plate))"
+                : "Overdue since " + DayText.relative(due, now: now).replacingOccurrences(of: "Yesterday", with: "yesterday")
+        }
+        return r.dueHasTime ? "Due \(HeaderClock.timeText(due, calendar: .plate))" : "Reminder"
     }
 }
 
@@ -357,6 +494,36 @@ struct CalendarSettings: View {
             Text("Every calendar on this iPad is here, including ones shared with you. A calendar someone shares in iCloud appears once you've accepted the invitation in the Calendar app. Google and Outlook calendars appear once the account is added in Settings → Calendar → Accounts.")
         }
         .task { await store.refresh(force: true) }
+        Section {
+            if store.canReadReminders {
+                let chosen = CalendarTileSettings.reminderLists(options)
+                ForEach(store.reminderLists) { list in
+                    Button { CalendarTileSettings.toggleReminderList(list.id, in: &options) } label: {
+                        HStack {
+                            Image(systemName: "list.bullet.circle.fill").foregroundStyle(list.color)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(list.title)
+                                Text(list.account).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if chosen.contains(list.id) { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+                if !chosen.isEmpty {
+                    Toggle("Also show ones with no date", isOn: Binding(get: { CalendarTileSettings.showsUndated(options) },
+                                                                       set: { options["undated"] = $0 ? nil : "0" }))
+                }
+            } else if store.reminderStatus == .notDetermined {
+                Button("Show reminders too") { Task { await store.refreshReminders(ask: true, force: true) } }
+            } else {
+                Text("Plate isn't allowed to see your reminders. Turn on Full Access in Settings → Privacy & Security → Reminders → Plate.")
+            }
+        } header: { Text("Reminders") } footer: {
+            Text("Reminders from the lists you tick appear among the events, on the day they're due (overdue ones under today). Tap the circle to tick one off; it's ticked off in Reminders for everyone the list is shared with. A shared list appears here once you've joined it in the Reminders app.")
+        }
+        .task { await store.refreshReminders(force: true) }
     }
 
     private func tick(_ title: String, _ on: Bool) -> some View {
