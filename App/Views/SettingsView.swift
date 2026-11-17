@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(CloudSync.self) private var cloud
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var hasKey = Keychain.claudeKey != nil
@@ -82,6 +83,8 @@ struct SettingsView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .confirmationDialog("Clear your kitchen, recipes, plan, lists and food log?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Clear everything", role: .destructive) { model.household = Household() }
+            } message: {
+                if cloud.isShared { Text("This household is shared, so it's cleared for everyone in it too.") }
             }
         }
     }

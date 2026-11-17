@@ -155,6 +155,18 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   (`WeatherTile.swift`, WeatherKit plus a once-asked location rounded to ~1 km) must show Apple's Weather mark and
   legal link. The app needs the HomeKit and WeatherKit capabilities and the MusicKit and WeatherKit app services ticked on `com.randomedp.plate`; "Open in wall mode" is a per-device
   `UserDefaults` setting. The app is iPhone (portrait) and iPad (every orientation, as Apple requires).
+- **Household sharing** (Ethan, 17 November 2026: "pretty much the whole app"): iCloud, no server. `HouseholdSync`
+  (PlateCore, tested in `HouseholdSyncTests`) cuts the household into parts, one CloudKit record each (record type
+  `PlateItem`, fields `data` Bytes and `file` Asset, in zone `Household` of container `iCloud.com.randomedp.plate`):
+  `recipe.<id>`, `item.<id>`, `list.<id>`, `extra.<key>`, `photo.<file>` and one-offs (`plan`, `dashboard`, `members`,
+  `usage`, …). `SyncLedger` remembers what iCloud has, so only real changes go (compared by value: Sets and file dates
+  don't count as edits). An edit not yet sent beats one arriving; food used is unioned; deletions win. Not shared: the
+  food log, `extras` "ai"/"claudeModel", and who "me" is (`AppModel.meID`, per device, for name and targets).
+  `App/CloudSync.swift` runs `CKSyncEngine` (private database for your own household, shared database after joining)
+  and polls every 20 s while open (no push). Invite = zone-wide `CKShare` + `UICloudSharingController`
+  (`SharingViews.swift`); invite links arrive through `PlateSceneDelegate`. Joining keeps the shared household plus
+  your recipes it lacks (`HouseholdSync.join`); leaving goes back to your own iCloud household. A new record type or
+  field must be added in CloudKit Console and deployed to Production by Ethan (TestFlight uses Production).
 - **Shopping** (`Shopping.swift`): needs from the chosen meals, minus the kitchen, then `bestPacks` (a small knapsack
   over pack sizes per store, with a waste penalty for perishables).
 
@@ -163,5 +175,4 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
 - The app group is `group.com.randomedp.plate.share` for both the app and the extension: that's the name Ethan
   registered (November 2026), so don't "tidy" it to `group.com.randomedp.plate` (that id was taken by an App ID by
   mistake). The group has to be ticked on both bundle ids; group names are case-sensitive. `apple-profiles.yml` checks.
-- Household sharing between people (later).
 - Real supermarket prices (the ones in `FoodDatabase.swift` are rough, November 2026).
