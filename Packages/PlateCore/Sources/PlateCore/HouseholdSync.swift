@@ -144,7 +144,17 @@ public enum HouseholdSync {
     /// What a phone ends up with when it joins a household that's already in iCloud (someone's invite, or the
     /// person's own iPad joining their iPhone): the shared household, plus any of this phone's recipes it doesn't
     /// already have. The kitchen, plan, lists and dashboard are the shared ones. The food log stays as it was.
-    public static func join(local: Household, cloud: Household) -> (household: Household, broughtRecipes: Int) {
+    ///
+    /// `me` is the person using this phone (their name and daily targets). Joining someone else's household adds
+    /// them to it (`addMe`); a phone joining its owner's own iCloud becomes the person already there.
+    public struct Joined: Sendable {
+        public var household: Household
+        public var broughtRecipes: Int
+        /// Who this phone's person is in the joined household.
+        public var me: UUID?
+    }
+
+    public static func join(local: Household, cloud: Household, me: UUID? = nil, addMe: Bool = false) -> Joined {
         var h = cloud
         h.log = local.log
         for k in localExtras { h.extras[k] = local.extras[k] }
@@ -154,7 +164,13 @@ public enum HouseholdSync {
             h.recipes.append(r)
             brought += 1
         }
-        return (h, brought)
+        var who = me
+        if let mine = local.members.first(where: { $0.id == me }) ?? local.members.first, !h.members.contains(where: { $0.id == mine.id }) {
+            if addMe { h.members.append(mine); who = mine.id } else { who = h.members.first?.id }
+        } else if who == nil {
+            who = addMe ? local.members.first?.id : h.members.first?.id
+        }
+        return Joined(household: h, broughtRecipes: brought, me: who)
     }
 
     // MARK: What changed
@@ -261,16 +277,19 @@ public struct SyncLedger: Codable, Hashable, Sendable {
 
     /// The first time this phone syncs: when iCloud already has a household, this phone takes it (keeping its own
     /// food log and any recipes the household doesn't have yet); when iCloud is empty, this phone's household is sent.
-    public mutating func join(_ local: Household, cloud: [String: Data]) -> (household: Household, broughtRecipes: Int) {
+    public mutating func join(_ local: Household, cloud: [String: Data], me: UUID? = nil, addMe: Bool = false) -> HouseholdSync.Joined {
         joined = true
-        guard !cloud.isEmpty else { synced = [:]; return (local, 0) }
+        guard !cloud.isEmpty else {
+            synced = [:]
+            return HouseholdSync.Joined(household: local, broughtRecipes: 0, me: me ?? local.members.first?.id)
+        }
         let shared = HouseholdSync.assemble(cloud, keeping: local)
         synced = cloud
         unreadable = Set(cloud.compactMap { key, data in
             var probe = Household()
             return HouseholdSync.split(key) == nil || HouseholdSync.apply(key, data, to: &probe) ? nil : key
         })
-        return HouseholdSync.join(local: local, cloud: shared)
+        return HouseholdSync.join(local: local, cloud: shared, me: me, addMe: addMe)
     }
 
     /// A part arrived from iCloud. `pending` is true when this phone has an edit to it waiting to go. Gives true when

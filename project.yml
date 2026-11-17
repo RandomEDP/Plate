@@ -33,6 +33,9 @@ targets:
         com.apple.security.application-groups: [group.com.randomedp.plate.share]
         com.apple.developer.homekit: true
         com.apple.developer.weatherkit: true
+        # Household sharing (CloudSync): the household lives in this iCloud container and is shared with CKShare.
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.randomedp.plate]
+        com.apple.developer.icloud-services: [CloudKit]
     info:
       path: App/Info.plist
       properties:
@@ -47,6 +50,8 @@ targets:
         UISupportedInterfaceOrientations~ipad:
           [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
+        # Lets an iCloud invite link ("join my household") open Plate.
+        CKSharingSupported: true
         NSCameraUsageDescription: Plate uses the camera to scan barcodes on food you add to your kitchen, and to photograph dishes you've made.
         NSHomeKitUsageDescription: Plate shows your lights, plugs and scenes on its home dashboard so you can switch them from there.
         NSAppleMusicUsageDescription: Plate plays the albums you pin to its home dashboard.

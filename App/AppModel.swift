@@ -25,6 +25,22 @@ final class AppModel {
     enum Tab: Hashable { case today, kitchen, recipes, plan, shop, home }
 
     private var saveTask: Task<Void, Never>?
+    /// Told after each change is saved, so iCloud sharing can send it (`CloudSync`).
+    @ObservationIgnored var afterChange: (() -> Void)?
+
+    /// The person using this phone, among the household's members: their name and daily targets. Each phone has
+    /// its own, so in a shared household everyone keeps their own targets.
+    var meID: UUID? {
+        get { access(keyPath: \.household); return UserDefaults.standard.string(forKey: "plateMe").flatMap(UUID.init(uuidString:)) }
+        set { withMutation(keyPath: \.household) { UserDefaults.standard.set(newValue?.uuidString, forKey: "plateMe") } }
+    }
+
+    var meIndex: Int? {
+        guard !household.members.isEmpty else { return nil }
+        return household.members.firstIndex { $0.id == meID } ?? 0
+    }
+
+    var me: Member? { meIndex.map { household.members[$0] } }
 
     init() {
         if let data = try? Data(contentsOf: SharedStorage.householdURL),
@@ -42,6 +58,8 @@ final class AppModel {
         }
         // The iPad opens on the home dashboard. Any device opens straight into wall mode if that's turned on for it.
         if UIDevice.current.userInterfaceIdiom == .pad { selectedTab = .home }
+        // The first member is this phone's person until sharing says otherwise.
+        if meID == nil { meID = household.members.first?.id }
         showWall = UserDefaults.standard.bool(forKey: "wallModeOnLaunch")
         // Pictures of dishes whose recipes have been deleted are cleared out.
         let snapshot = household
@@ -53,10 +71,11 @@ final class AppModel {
     private func scheduleSave() {
         saveTask?.cancel()
         let snapshot = household
-        saveTask = Task { [snapshot] in
+        saveTask = Task { [snapshot, weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             if Task.isCancelled { return }
             AppModel.write(snapshot)
+            self?.afterChange?()
         }
     }
 
@@ -74,6 +93,7 @@ final class AppModel {
     func saveNow() {
         saveTask?.cancel()
         AppModel.write(household)
+        afterChange?()
     }
 
     // MARK: Recipes
@@ -223,7 +243,7 @@ final class AppModel {
         entries(on: date).reduce(Macros.zero) { $0 + $1.macros }
     }
 
-    var targets: MacroTargets { household.members.first?.targets ?? MacroTargets() }
+    var targets: MacroTargets { me?.targets ?? MacroTargets() }
 
     // MARK: Plan
 

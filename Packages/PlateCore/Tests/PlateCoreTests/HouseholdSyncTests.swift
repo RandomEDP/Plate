@@ -233,9 +233,10 @@ final class HouseholdSyncTests: XCTestCase {
     func testJoiningAnEmptyICloudSendsEverything() {
         var ledger = SyncLedger()
         let h = sample()
-        let joined = ledger.join(h, cloud: [:])
+        let joined = ledger.join(h, cloud: [:], me: h.members[0].id)
         XCTAssertEqual(joined.household, h)
         XCTAssertTrue(ledger.joined)
+        XCTAssertEqual(joined.me, h.members[0].id)
         XCTAssertEqual(Set(ledger.take(joined.household).save), Set(HouseholdSync.parts(of: h).keys))
     }
 
@@ -251,13 +252,26 @@ final class HouseholdSyncTests: XCTestCase {
         mine.extras["ai"] = "apple"
 
         var ledger = SyncLedger()
-        let (h, brought) = ledger.join(mine, cloud: HouseholdSync.parts(of: shared))
-        XCTAssertEqual(brought, 1)
+        mine.members = [Member(name: "Sam", targets: MacroTargets(kcal: 1800))]
+        let joined = ledger.join(mine, cloud: HouseholdSync.parts(of: shared), me: mine.members[0].id, addMe: true)
+        let h = joined.household
+        XCTAssertEqual(joined.broughtRecipes, 1)
+        XCTAssertEqual(h.members.map(\.name), ["Me", "Sam"], "Sam joins the household with their own targets")
+        XCTAssertEqual(joined.me, mine.members[0].id)
         XCTAssertEqual(h.name, "Academy Square")
         XCTAssertEqual(Set(h.recipes.map(\.name)), ["Chickpea curry", "Pesto pasta", "Lentil soup"])
         XCTAssertEqual(h.inventory.map(\.name), ["Onion", "Milk"], "the kitchen is the shared one")
         XCTAssertEqual(h.log.map(\.title), ["Mine"])
         XCTAssertEqual(h.extras["ai"], "apple")
-        XCTAssertEqual(ledger.take(h).save, ["recipe.\(soup.id.uuidString)"], "only the brought recipe goes up")
+        XCTAssertEqual(ledger.take(h).save, ["members", "recipe.\(soup.id.uuidString)"], "only Sam and the brought recipe go up")
+    }
+
+    func testMyOwnIPadBecomesThePersonAlreadyThere() {
+        let shared = sample()
+        let iPad = Household(name: "My kitchen")
+        var ledger = SyncLedger()
+        let joined = ledger.join(iPad, cloud: HouseholdSync.parts(of: shared), me: iPad.members[0].id, addMe: false)
+        XCTAssertEqual(joined.household.members.count, 1)
+        XCTAssertEqual(joined.me, shared.members[0].id)
     }
 }
