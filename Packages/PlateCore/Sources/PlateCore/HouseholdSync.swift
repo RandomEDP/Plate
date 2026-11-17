@@ -135,9 +135,9 @@ public enum HouseholdSync {
         h.extras = local.extras.filter { localExtras.contains($0.key) }
         // Parts go in a fixed order so recipes, items and lists keep the same order on every phone.
         for key in cloud.keys.sorted() { apply(key, cloud[key]!, to: &h) }
-        h.recipes.sort { $0.createdAt < $1.createdAt }
-        h.inventory.sort { $0.addedAt < $1.addedAt }
-        h.lists.sort { $0.createdAt < $1.createdAt }
+        h.recipes.sort { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+        h.inventory.sort { ($0.addedAt, $0.id.uuidString) < ($1.addedAt, $1.id.uuidString) }
+        h.lists.sort { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
         return h
     }
 
