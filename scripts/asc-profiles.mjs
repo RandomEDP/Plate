@@ -53,9 +53,11 @@ for (const ident of IDS) {
   for (const p of profiles) {
     const a = p.attributes, groups = profileGroups(a.profileContent || '');
     const containers = profileContainers(a.profileContent || '');
-    const has = !!groups && groups.includes(GROUP) && (ident !== APP || containers.includes(CONTAINER));
+    // Profiles for the share extension can come back under the app's id too; only the app's own needs iCloud.
+    const forApp = ident === APP && !(a.name || '').endsWith('.share');
+    const has = !!groups && groups.includes(GROUP) && (!forApp || containers.includes(CONTAINER));
     console.log(`  profile "${a.name}" (${a.profileType}, ${a.profileState}, made ${a.createdDate}): app groups ${groups ? groups.join(', ') || 'none' : 'not in it'}` +
-      (ident === APP ? `; iCloud containers ${containers.join(', ') || 'none'}` : ''));
+      (forApp ? `; iCloud containers ${containers.join(', ') || 'none'}` : ''));
     if (!has) {
       stale++;
       if (mode === 'refresh') {
