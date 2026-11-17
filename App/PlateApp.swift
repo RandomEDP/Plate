@@ -3,7 +3,11 @@ import SwiftUI
 
 @main
 struct PlateApp: App {
+    /// Only there to pass iCloud invite links on (see `PlateSceneDelegate`).
+    @UIApplicationDelegateAdaptor(PlateAppDelegate.self) private var appDelegate
     @State private var model: AppModel
+    /// Household sharing through iCloud.
+    @State private var cloud: CloudSync
     @State private var home: HomeStore
     @State private var music: MusicStore
     @State private var photos = PhotoStore()
@@ -15,6 +19,7 @@ struct PlateApp: App {
     init() {
         let model = AppModel(), home = HomeStore(), music = MusicStore(), weather = WeatherStore()
         _model = State(initialValue: model)
+        _cloud = State(initialValue: CloudSync(model: model))
         _home = State(initialValue: home)
         _music = State(initialValue: music)
         _weather = State(initialValue: weather)
@@ -26,17 +31,20 @@ struct PlateApp: App {
             RootView()
                 .environment(engine)
                 .environment(model)
+                .environment(cloud)
                 .environment(home)
                 .environment(music)
                 .environment(photos)
                 .environment(weather)
                 .onAppear {
+                    Task { await cloud.start() }
                     model.rollPlanForward()
                     model.collectInbox(); Task { await model.collectVideos() }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
+                        Task { await cloud.start() }
                         model.rollPlanForward()
                         model.collectInbox(); Task { await model.collectVideos() }
                     case .background:
@@ -64,6 +72,7 @@ struct PlateApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(CloudSync.self) private var cloud
     @Environment(HomeStore.self) private var home
     @Environment(MusicStore.self) private var music
     @Environment(PhotoStore.self) private var photos
@@ -103,6 +112,12 @@ struct RootView: View {
                 .environment(weather)
                 .environment(engine)
         }
+        .alert(inviteTitle, isPresented: Binding(get: { cloud.invite != nil }, set: { _ in })) {
+            Button("Join") { if let invite = cloud.invite { Task { await cloud.accept(invite) } } }
+            Button("Not now", role: .cancel) { cloud.invite = nil }
+        } message: {
+            Text("You'll share their kitchen, recipes, meal plan, shopping lists and home dashboard. Your own recipes come with you, and your food log and daily targets stay yours. You can leave any time in Settings.")
+        }
         .sheet(item: $model.arrived) { recipe in
             // A recipe that arrived as a link: look it over, then save it (or it's one you already have).
             NavigationStack {
@@ -124,6 +139,14 @@ struct RootView: View {
             }
         }
         .animation(.spring, value: model.banner)
+    }
+}
+
+extension RootView {
+    var inviteTitle: String {
+        let name = cloud.invite?.ownerIdentity.nameComponents
+            .map { PersonNameComponentsFormatter.localizedString(from: $0, style: .short) } ?? ""
+        return name.isEmpty ? "Join this household?" : "Join \(name)'s household?"
     }
 }
 

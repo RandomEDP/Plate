@@ -237,7 +237,7 @@ final class DashboardEngine {
 
     func briefingText(now: Date = Date()) -> String {
         let hour = Calendar.plate.component(.hour, from: now)
-        let name = model.household.members.first?.name
+        let name = model.me?.name
         let w = weather.now
         let day = model.dayIndex(for: now)
         let meals = model.household.plan.entries.filter { $0.day == day }.compactMap { model.recipe($0.recipeId)?.name }

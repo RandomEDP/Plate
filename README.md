@@ -67,7 +67,7 @@ AI is optional; everything else works without it. Settings → AI:
 | `.github/workflows/ios.yml` | Tests, a simulator build, and the TestFlight upload |
 
 Data is kept on the iPhone in one file (`household.json` in the app group). Every record has an id and an `updatedAt`,
-so sharing a household with other people can be added later without changing the format.
+so households can be shared: Settings → Sharing invites people through iCloud (see CLAUDE.md, "Household sharing").
 
 ### Tests
 

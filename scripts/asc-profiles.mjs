@@ -1,5 +1,6 @@
-// Says what Apple's side holds for signing the app and the share extension with the shared app group, and can clear out
-// provisioning profiles that were made before the group was ticked, so the next signed build makes fresh ones.
+// Says what Apple's side holds for signing the app and the share extension with the shared app group (and, for the app,
+// the iCloud container used for household sharing), and can clear out provisioning profiles made before those were
+// ticked, so the next signed build makes fresh ones.
 //   node scripts/asc-profiles.mjs check     (changes nothing)
 //   node scripts/asc-profiles.mjs refresh   (deletes only profiles for these bundle ids that lack the group)
 // Needs ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8 in the environment.
@@ -8,6 +9,8 @@ import crypto from 'node:crypto';
 const { ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 } = process.env;
 const IDS = ['com.randomedp.plate', 'com.randomedp.plate.share'];
 const GROUP = 'group.com.randomedp.plate.share';
+const CONTAINER = 'iCloud.com.randomedp.plate';
+const APP = 'com.randomedp.plate';
 const b64 = (v) => Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString('base64url');
 function token() {
   const now = Math.floor(Date.now() / 1000);
@@ -26,6 +29,12 @@ export function profileGroups(content) {
   const m = text.match(/<key>com\.apple\.security\.application-groups<\/key>\s*<array>([\s\S]*?)<\/array>/);
   return m ? [...m[1].matchAll(/<string>([^<]*)<\/string>/g)].map((x) => x[1]) : null;
 }
+// The iCloud containers a profile grants.
+export function profileContainers(content) {
+  const text = Buffer.from(content, 'base64').toString('latin1');
+  const m = text.match(/<key>com\.apple\.developer\.icloud-container-identifiers<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  return m ? [...m[1].matchAll(/<string>([^<]*)<\/string>/g)].map((x) => x[1]) : [];
+}
 
 const mode = process.argv[2];
 if (mode !== 'check' && mode !== 'refresh') { console.error('Usage: asc-profiles.mjs check | refresh'); process.exit(2); }
@@ -38,12 +47,17 @@ for (const ident of IDS) {
   const caps = inc.filter((x) => x.type === 'bundleIdCapabilities').map((x) => x.attributes.capabilityType);
   console.log(`${ident}: capabilities ${caps.sort().join(', ') || 'none'}`);
   console.log(`  App Groups ${caps.includes('APP_GROUPS') ? 'is' : 'is NOT'} switched on`);
+  if (ident === APP) console.log(`  iCloud ${caps.includes('ICLOUD') ? 'is' : 'is NOT'} switched on`);
   const profiles = inc.filter((x) => x.type === 'profiles');
   if (!profiles.length) console.log('  no provisioning profiles (the next signed build makes them)');
   for (const p of profiles) {
     const a = p.attributes, groups = profileGroups(a.profileContent || '');
-    const has = !!groups && groups.includes(GROUP);
-    console.log(`  profile "${a.name}" (${a.profileType}, ${a.profileState}, made ${a.createdDate}): app groups ${groups ? groups.join(', ') || 'none' : 'not in it'}`);
+    const containers = profileContainers(a.profileContent || '');
+    // Profiles for the share extension can come back under the app's id too; only the app's own needs iCloud.
+    const forApp = ident === APP && !(a.name || '').endsWith('.share');
+    const has = !!groups && groups.includes(GROUP) && (!forApp || containers.includes(CONTAINER));
+    console.log(`  profile "${a.name}" (${a.profileType}, ${a.profileState}, made ${a.createdDate}): app groups ${groups ? groups.join(', ') || 'none' : 'not in it'}` +
+      (forApp ? `; iCloud containers ${containers.join(', ') || 'none'}` : ''));
     if (!has) {
       stale++;
       if (mode === 'refresh') {
@@ -53,4 +67,4 @@ for (const ident of IDS) {
     }
   }
 }
-console.log(stale ? `${stale} profile(s) without ${GROUP}.` : `Every profile has ${GROUP}.`);
+console.log(stale ? `${stale} profile(s) without ${GROUP} (or, for the app, ${CONTAINER}).` : `Every profile has ${GROUP}, and the app's has ${CONTAINER}.`);

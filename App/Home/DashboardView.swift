@@ -215,7 +215,7 @@ struct DashboardView: View {
                 if style.showGreeting {
                     TimelineView(.everyMinute) { ctx in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.household.members.first?.name))
+                            Text(DayText.greeting(hour: Calendar.plate.component(.hour, from: ctx.date), name: model.me?.name))
                                 .font(.system(size: wall ? 34 : 28, weight: .bold))
                                 .lineLimit(1).minimumScaleFactor(0.6)
                             let summary = engine.summaryLine(now: ctx.date)

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(CloudSync.self) private var cloud
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var hasKey = Keychain.claudeKey != nil
@@ -16,13 +17,14 @@ struct SettingsView: View {
                     TextField("Name", text: $model.household.name)
                     Stepper("Cooking for \(model.household.planSettings.people)", value: $model.household.planSettings.people, in: 1...12)
                 }
-                if !model.household.members.isEmpty {
+                SharingSection()
+                if let i = model.meIndex {
                     Section {
-                        TextField("Your name", text: $model.household.members[0].name)
-                        targetField("Calories", value: $model.household.members[0].targets.kcal, unit: "kcal")
-                        targetField("Protein", value: $model.household.members[0].targets.protein, unit: "g")
-                        targetField("Carbs", value: $model.household.members[0].targets.carbs, unit: "g")
-                        targetField("Fat", value: $model.household.members[0].targets.fat, unit: "g")
+                        TextField("Your name", text: $model.household.members[i].name)
+                        targetField("Calories", value: $model.household.members[i].targets.kcal, unit: "kcal")
+                        targetField("Protein", value: $model.household.members[i].targets.protein, unit: "g")
+                        targetField("Carbs", value: $model.household.members[i].targets.carbs, unit: "g")
+                        targetField("Fat", value: $model.household.members[i].targets.fat, unit: "g")
                     } header: { Text("Daily targets") } footer: { Text("Used for the Today screen and to pick sensible portions when planning.") }
                 }
                 Section {
@@ -73,7 +75,7 @@ struct SettingsView: View {
                     LabeledContent("Items in the kitchen", value: "\(model.household.inventory.count)")
                     Button("Clear everything", role: .destructive) { confirmReset = true }
                 } header: { Text("Data") } footer: {
-                    Text("Everything is kept on this iPhone. Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")). Food barcodes are looked up on Open Food Facts.")
+                    Text("Kept on this iPhone, and in iCloud while sharing is on. Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")). Food barcodes are looked up on Open Food Facts.")
                 }
             }
             .navigationTitle("Settings")
@@ -81,6 +83,8 @@ struct SettingsView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .confirmationDialog("Clear your kitchen, recipes, plan, lists and food log?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Clear everything", role: .destructive) { model.household = Household() }
+            } message: {
+                if cloud.isShared { Text("This household is shared, so it's cleared for everyone in it too.") }
             }
         }
     }
