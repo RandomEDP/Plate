@@ -536,7 +536,11 @@ enum CloudSyncError: LocalizedError {
 
 extension CloudSync: CKSyncEngineDelegate {
     nonisolated func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
-        await MainActor.run { self.handle(event) }
+        await MainActor.run {
+            // Events from an engine that's since been stopped (after joining or leaving) are for the old household.
+            guard syncEngine === self.engine else { return }
+            self.handle(event)
+        }
     }
 
     nonisolated func nextRecordZoneChangeBatch(_ context: CKSyncEngine.SendChangesContext,
@@ -544,6 +548,7 @@ extension CloudSync: CKSyncEngineDelegate {
         let scope = context.options.scope
         let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !changes.isEmpty else { return nil }
+        guard await MainActor.run(body: { syncEngine === self.engine }) else { return nil }
         // Records are made on the main actor (that's where the household is), then handed over.
         let records: [CKRecord.ID: CKRecord] = await MainActor.run {
             var out: [CKRecord.ID: CKRecord] = [:]
