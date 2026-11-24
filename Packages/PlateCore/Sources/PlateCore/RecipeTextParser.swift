@@ -195,7 +195,9 @@ public enum RecipeTextParser {
         let lowHead = head.lowercased()
         if notListHeads.contains(where: { lowHead.hasPrefix($0) || lowHead.contains(" " + $0) }) && lowHead != "to serve" { return nil }
         let parts = expandEach(splitInline(rest))
-        let read = parts.filter { !looksLikeStep($0) }.compactMap(IngredientParser.ingredient)
+        // A part that reads like an instruction is left out, unless it has an amount ("sprinkle of sugar").
+        let read = parts.filter { !looksLikeStep($0) || (IngredientParser.parse($0)?.quantity != nil && $0.split(separator: " ").count < 6) }
+            .compactMap(IngredientParser.ingredient)
         if parts.count >= 2 {
             guard read.count >= 2, Double(read.count) >= Double(parts.count) * 0.5 else { return nil }
         } else {

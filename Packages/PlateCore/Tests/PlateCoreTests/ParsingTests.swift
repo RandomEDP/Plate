@@ -47,7 +47,7 @@ final class IngredientParserTests: XCTestCase {
         check("1 x 400ml tin light coconut milk", 400, .ml, food: "coconut-milk")
         check("80g cheddar cheese, grated", 80, .g, food: "cheddar")
         check("1 red pepper", 1, .piece, food: "pepper")
-        check("Juice of 1 lime", nil, nil, food: "lime")
+        check("Juice of 1 lime", 1, .piece, food: "lime")  // the amount is of the lime (24 November 2026)
         check("2 pouches microwave rice", 2, .pack, food: "microwave-rice")
         check("1lb lean ground beef", 1, .lb, food: "beef-mince")
         check("4oz cheddar", 4, .oz, food: "cheddar")
