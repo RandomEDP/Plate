@@ -58,7 +58,11 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   with rough prices. Recipe ingredients are matched to it by `FoodMatcher` (aliases); unmatched ones still work but have
   no macros or packs.
 - **Parsing:** `IngredientParser` (one line), `RecipeTextParser` (a whole caption: title, ingredients, method,
-  servings, stated macros, hashtags). Test new caption styles in `ParsingTests.swift`. `IngredientSplit` turns a line naming
+  servings, stated macros, hashtags). Test new caption styles in `ParsingTests.swift`. Captions that put each part on
+  one line ("SMOKY TOFU: 1 block tofu, 1 tsp each of paprika and cumin, juice of 1/2 lime") are read by `inlineList`
+  and `expandEach`; the title skips an opening question ("Got the gravy ick?") and prefers a short sentence naming a
+  dish (`CaptionSectionsTests`, Ethan 24 November 2026). Instagram/TikTok recipes saved with almost nothing in them
+  are read again once from their links (`ImportRepair`, `AppModel.rereadThinImports`). `IngredientSplit` turns a line naming
   two foods ("50g garlic and scallions") into two ingredients when a recipe is built, from Plate's parser or the AI. `UnitStandard` then puts each in the unit
   you'd count it in (garlic in cloves, onions and eggs by the piece, liquids in ml, no oz or cups), noting what the recipe
   said; weighed foods like chicken stay as written. Saved recipes were converted once (`standardiseSavedRecipeUnitsOnce`).

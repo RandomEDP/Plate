@@ -28,9 +28,13 @@ extension AppModel {
                 var tidy = draft.recipe(source: source)
                 // Only take the AI's version when its ingredients are really in the caption: on a page with no
                 // recipe it can make one up (Osta imports came back as "Chickpea & Courgette Salad").
-                if tidy.ingredients.count >= max(2, parsed.ingredients.count / 2),
+                // It mustn't drop much of what Plate found either (sectioned captions: Ethan, 24 November 2026).
+                if tidy.ingredients.count >= max(2, parsed.ingredients.count * 3 / 4),
                    AIGuard.faithful(ingredients: draft.ingredients, to: caption) {
-                    if !AIGuard.faithful(name: tidy.name, to: caption) { tidy.name = parsed.name }
+                    // The AI's name must come from the caption, and not from its opening question ("Got the gravy ick?").
+                    if !AIGuard.faithful(name: tidy.name, to: caption) || RecipeTextParser.isHook(tidy.name, in: caption) {
+                        tidy.name = parsed.name
+                    }
                     // The creator's stated macros win over the model's estimate.
                     if let stated = parsed.statedPerServing { tidy.statedPerServing = stated }
                     // Either reading's name can show it's a sauce; the caption's hashtags alone can't.
@@ -117,6 +121,44 @@ extension AppModel {
         return recipe
     }
 }
+
+extension AppModel {
+    /// Reads Instagram and TikTok recipes that an older Plate saved with almost nothing in them again from their
+    /// links, once, keeping your favourite, rating and photo. A new reading only replaces one that finds more.
+    func rereadThinImports() async {
+        let thin = household.thinImportsToReread
+        guard !thin.isEmpty, !ThinImportState.busy else { return }
+        ThinImportState.busy = true
+        defer { ThinImportState.busy = false }
+        // Let the app settle (and iCloud catch up) first.
+        try? await Task.sleep(for: .seconds(4))
+        var fixed: [String] = []
+        var offline = false
+        for old in thin {
+            guard let link = old.source.url.flatMap(URL.init(string:)) else { continue }
+            do {
+                let fresh = try await fetchRecipe(link: link)
+                let cover = takeFoundPhoto(for: fresh.id)
+                if ImportRepair.isBetter(fresh, than: old), household.replaceRecipe(old.id, with: fresh) {
+                    if let cover { _ = setPhoto(cover.data, origin: cover.origin, for: old.id) }
+                    fixed.append(fresh.name)
+                }
+            } catch let error as URLError where [.notConnectedToInternet, .networkConnectionLost, .timedOut].contains(error.code) {
+                offline = true
+                break
+            } catch {
+                // A private or deleted post: the recipe stays as it was.
+            }
+            try? await Task.sleep(for: .milliseconds(1200))
+        }
+        // Offline: try again next time the app opens.
+        if !offline { household.markThinImportsReread() }
+        if fixed.count == 1 { banner = "Read \(fixed[0]) again from its post: it was missing most of its ingredients." }
+        else if fixed.count > 1 { banner = "Read \(fixed.count) recipes again from their posts: they were missing most of their ingredients." }
+    }
+}
+
+@MainActor enum ThinImportState { static var busy = false }
 
 @MainActor enum VideoInboxState { static var busy = false }
 

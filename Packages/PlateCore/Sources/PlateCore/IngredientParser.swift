@@ -140,6 +140,9 @@ public enum IngredientParser {
         "pouch": (.pack, 1), "pouches": (.pack, 1), "block": (.pack, 1), "ball": (.piece, 1), "balls": (.piece, 1),
     ]
 
+    /// Words between an amount and its unit that only say how full ("1 heaped tbsp").
+    static let spoonSizes: Set<String> = ["heaped", "heaping", "level", "rounded", "generous", "scant", "large", "small", "big"]
+
     static let numberWords: [String: Double] = [
         "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
         "nine": 9, "ten": 10, "twelve": 12, "half": 0.5, "quarter": 0.25, "couple": 2, "few": 3, "dozen": 12,
@@ -285,6 +288,13 @@ public enum IngredientParser {
                 if marker != "as needed" { optional = optional || marker != "to taste" }
             }
         }
+        // "Juice of 1/2 lime", "zest of 1 lemon": the amount is of the fruit, and the part used is a note.
+        if let r = line.range(of: #"^(?:the\s+)?(juice and zest|zest and juice|juice|zest)\s+(?:of\s+)?(?=[0-9½¼¾⅓⅔]|(?:a|an|half|one|two)\s)"#,
+                              options: [.regularExpression, .caseInsensitive]) {
+            let part = line[r].lowercased().replacingOccurrences(of: " of", with: "").replacingOccurrences(of: "the ", with: "")
+            notes.append(part.trimmingCharacters(in: .whitespaces))
+            line.removeSubrange(r)
+        }
         // "Ingredient: 200g" or "Ingredient - 200g" → move the quantity to the front.
         line = moveTrailingQuantityToFront(line)
 
@@ -301,6 +311,15 @@ public enum IngredientParser {
                 if let (n2, after2) = leadingNumber(probe) {
                     amount *= n2; after = after2
                 } else if probe.first == " " { after = probe }
+            }
+            // "1 heaped tbsp", "2 level tsp": the size word goes in the note so the spoon is still read.
+            if leadingUnit(after) == nil {
+                let trimmed = after.drop(while: { $0 == " " })
+                let word = String(trimmed.prefix(while: \.isLetter)).lowercased()
+                if spoonSizes.contains(word), let ((u, _), _) = leadingUnit(trimmed.dropFirst(word.count)), u != .piece {
+                    after = trimmed.dropFirst(word.count)
+                    notes.append(word)
+                }
             }
             if let ((unit, mult), afterUnit) = leadingUnit(after) {
                 quantity = Quantity(amount * mult, unit)
@@ -337,7 +356,9 @@ public enum IngredientParser {
         name = name.trimmingCharacters(in: CharacterSet(charactersIn: " .:-–,*"))
         while name.contains("  ") { name = name.replacingOccurrences(of: "  ", with: " ") }
         if name.isEmpty { return nil }
-        let food = FoodMatcher.match(name) ?? notes.lazy.compactMap { FoodMatcher.match($0) }.first
+        var food = FoodMatcher.match(name) ?? notes.lazy.compactMap { FoodMatcher.match($0) }.first
+        // "salt, pepper" means black pepper; a pepper you'd buy whole comes with a count ("1/2 red pepper").
+        if quantity == nil, name.lowercased() == "pepper", let black = FoodDatabase.byId["black-pepper"] { food = black }
         // "salt and pepper to taste" has no amount: fine. A bare sentence with no food and no amount isn't an ingredient.
         if quantity == nil && food == nil { return nil }
         // "1 bulb of garlic", "2 heads garlic": a whole bulb is about 10 cloves, not 1.

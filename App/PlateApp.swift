@@ -40,6 +40,7 @@ struct PlateApp: App {
                     Task { await cloud.start() }
                     model.rollPlanForward()
                     model.collectInbox(); Task { await model.collectVideos() }
+                    Task { await model.rereadThinImports() }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
