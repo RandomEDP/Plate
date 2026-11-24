@@ -62,7 +62,7 @@ final class CaptionSectionsTests: XCTestCase {
         XCTAssertTrue(r.tags.contains("vegantacos"))
         // Saved, it has real macros, not 7 kcal.
         let recipe = r.recipe(source: RecipeSource(kind: .instagram, url: "https://www.instagram.com/reel/x/"))
-        XCTAssertTrue(recipe.servingsGuessed)
+        XCTAssertEqual(recipe.servingsGuessed, true)
         XCTAssertGreaterThan(Nutrition.perServing(recipe).kcal, 150)
         XCTAssertFalse(ImportRepair.looksThin(recipe))
     }
