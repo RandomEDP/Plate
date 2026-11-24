@@ -39,7 +39,7 @@ public enum RecipeTextParser {
 
     static let ingredientHeaders = ["ingredients", "ingredient list", "you'll need", "you will need", "what you need", "what you'll need", "shopping list", "for the recipe", "ingredients needed"]
     static let methodHeaders = ["method", "instructions", "directions", "steps", "how to make it", "how to make", "how to", "recipe steps", "preparation", "prep", "to make", "method:", "cooking instructions", "instruction"]
-    static let callToAction = ["follow", "save this", "save for", "comment", "link in bio", "like this", "share this", "tag a", "tag someone", "dm me", "full recipe", "turn on notifications", "subscribe", "check out", "my cookbook", "ebook", "use code", "discount", "sponsored", "ad |", "#ad"]
+    static let callToAction = ["view all", "p.s.", "follow", "save this", "save for", "comment", "link in bio", "like this", "share this", "tag a", "tag someone", "dm me", "full recipe", "turn on notifications", "subscribe", "check out", "my cookbook", "ebook", "use code", "discount", "sponsored", "ad |", "#ad"]
     static let cookingVerbs = ["add", "mix", "stir", "cook", "bake", "fry", "boil", "simmer", "heat", "preheat", "pour", "place", "combine", "whisk", "season", "serve", "chop", "slice", "dice", "blend", "transfer", "remove", "top", "spread", "cover", "leave", "let", "toss", "marinate", "air fry", "airfry", "roast", "grill", "microwave", "drain", "layer", "fold", "assemble", "melt", "sprinkle", "garnish", "flip", "put", "in a", "once", "meanwhile", "finally", "then", "next", "start", "first", "divide", "portion", "store", "enjoy", "rinse", "pat", "coat", "brush", "spray", "bring", "reduce", "return", "squeeze", "shred", "wrap", "fill", "roll"]
 
     public static func parse(_ text: String, fallbackTitle: String? = nil) -> ParsedRecipe {
@@ -75,7 +75,7 @@ public enum RecipeTextParser {
                 section = kind
                 if let remainder, !remainder.isEmpty {
                     if kind == .ingredients {
-                        for part in splitInline(remainder) { if let ing = IngredientParser.ingredient(part) { ingredients.append(ing) } }
+                        ingredients.append(contentsOf: parseParts(splitInline(remainder)))
                     } else {
                         let step = stripStepNumber(remainder)
                         if !step.isEmpty { steps.append(step) }
@@ -83,18 +83,26 @@ public enum RecipeTextParser {
                 }
                 continue
             }
+            // A part of the recipe with its ingredients after a colon, all on one line
+            // ("SMOKY TOFU: 1 block smoked tofu, 1 tsp each of paprika and cumin, drizzle of olive oil").
+            if section != .method, let items = inlineList(cleaned, inIngredients: section == .ingredients) {
+                sawIngredientHeader = true
+                section = .ingredients
+                ingredients.append(contentsOf: items)
+                continue
+            }
             // A sub-heading like "For the sauce:" or "Marinade" inside the ingredient list.
             if section == .ingredients, cleaned.hasSuffix(":"), cleaned.split(separator: " ").count <= 5 { continue }
 
             switch section {
             case .ingredients:
-                if looksLikeStep(cleaned), IngredientParser.parse(cleaned)?.quantity == nil {
+                // "1. Toss the tofu…" reads as one of something, so numbered steps are checked first.
+                if looksLikeNumberedStep(cleaned) || (looksLikeStep(cleaned) && IngredientParser.parse(cleaned)?.quantity == nil) {
                     section = .method
                     steps.append(stripStepNumber(cleaned))
-                } else if let ing = IngredientParser.ingredient(cleaned) {
-                    ingredients.append(ing)
-                } else if isCallToAction(lowered) {
-                    continue
+                } else {
+                    let found = parseParts([cleaned])
+                    if !found.isEmpty { ingredients.append(contentsOf: found) }
                 }
             case .method:
                 if isCallToAction(lowered) { continue }
@@ -154,10 +162,100 @@ public enum RecipeTextParser {
         return pieces
     }
 
+    /// Splits "a, b; c" into its parts, leaving commas inside brackets alone ("1 onion (red, or white)").
     static func splitInline(_ text: String) -> [String] {
-        text.components(separatedBy: CharacterSet(charactersIn: ",;"))
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        var parts: [String] = []
+        var current = ""
+        var depth = 0
+        for ch in text {
+            if ch == "(" { depth += 1 } else if ch == ")" { depth = max(0, depth - 1) }
+            if depth == 0, ch == "," || ch == ";" {
+                parts.append(current); current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        parts.append(current)
+        return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Headings before a colon that are never a list of ingredients.
+    static let notListHeads = ["serves", "serving", "portion", "makes", "yield", "time", "prep", "cook", "macro", "nutrition",
+                               "calorie", "kcal", "method", "instruction", "step", "tip", "note", "p.s", "ps", "song", "music", "credit"]
+
+    /// The ingredients in a line like "MANGO SALSA: 1 mango, handful of coriander, juice of 1/2 lime", or nil when the
+    /// line isn't one. Needs a short heading and a list that mostly reads as ingredients; a single item counts only once
+    /// the ingredients have started ("To serve: soft taco shells").
+    static func inlineList(_ line: String, inIngredients: Bool) -> [RecipeIngredient]? {
+        guard let colon = line.firstIndex(of: ":") else { return nil }
+        let head = line[..<colon].trimmingCharacters(in: .whitespaces)
+        let rest = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        guard !head.isEmpty, !rest.isEmpty, head.split(separator: " ").count <= 5,
+              head.contains(where: \.isLetter), !head.contains(where: \.isNumber) else { return nil }
+        let lowHead = head.lowercased()
+        if notListHeads.contains(where: { lowHead.hasPrefix($0) || lowHead.contains(" " + $0) }) && lowHead != "to serve" { return nil }
+        let parts = expandEach(splitInline(rest))
+        // A part that reads like an instruction is left out, unless it has an amount ("sprinkle of sugar").
+        let read = parts.filter { !looksLikeStep($0) || (IngredientParser.parse($0)?.quantity != nil && $0.split(separator: " ").count < 6) }
+            .compactMap(IngredientParser.ingredient)
+        if parts.count >= 2 {
+            guard read.count >= 2, Double(read.count) >= Double(parts.count) * 0.5 else { return nil }
+        } else {
+            guard inIngredients, read.count == 1, !looksLikeStep(rest) else { return nil }
+        }
+        return read.flatMap(splitPair)
+    }
+
+    /// Reads list parts as ingredients, sharing out "1 tsp each of" amounts.
+    static func parseParts(_ parts: [String]) -> [RecipeIngredient] {
+        expandEach(parts).compactMap(IngredientParser.ingredient).flatMap(splitPair)
+    }
+
+    /// "chopped jalapeños and coriander" with no amount is two ingredients ("salt & pepper" stays one). Lines with an amount
+    /// are left to `IngredientSplit` when the recipe is built.
+    static func splitPair(_ ing: RecipeIngredient) -> [RecipeIngredient] {
+        guard ing.quantity == nil, let parts = IngredientSplit.parts(of: ing.name) else { return [ing] }
+        return parts.map { RecipeIngredient(name: $0.name, foodId: $0.food.id, quantity: nil, note: ing.note, optional: ing.optional) }
+    }
+
+    /// Shares out "1 tsp each of smoked paprika, onion granules, oregano and cumin": the parts after the one saying
+    /// "each" that have no amount of their own get the same amount, up to and including one joined with "and".
+    static func expandEach(_ parts: [String]) -> [String] {
+        var out: [String] = []
+        var i = 0
+        while i < parts.count {
+            guard let (amount, first) = eachSplit(parts[i]) else { out.append(parts[i]); i += 1; continue }
+            var foods = andSplit(first)
+            var j = i + 1
+            if foods.count == 1 {
+                while j < parts.count, IngredientParser.parse(parts[j])?.quantity == nil, !startsWithAmount(parts[j]) {
+                    let pieces = andSplit(parts[j])
+                    foods.append(contentsOf: pieces)
+                    j += 1
+                    if pieces.count > 1 { break }
+                }
+            }
+            out.append(contentsOf: foods.map { amount + " " + $0 })
+            i = j
+        }
+        return out
+    }
+
+    /// "1 tsp each of paprika" → ("1 tsp", "paprika"). Nil when there's no amount before "each".
+    static func eachSplit(_ part: String) -> (String, String)? {
+        guard let re = try? NSRegularExpression(pattern: #"^(.+?)\s+each(?:\s+of)?\s+(.+)$"#, options: [.caseInsensitive]) else { return nil }
+        let ns = part as NSString
+        guard let m = re.firstMatch(in: part, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        let amount = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+        let rest = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces)
+        guard IngredientParser.leadingNumber(Substring(amount)) != nil || IngredientParser.leadingUnit(Substring(amount)) != nil,
+              amount.split(separator: " ").count <= 3 else { return nil }
+        return (amount, rest)
+    }
+
+    static func andSplit(_ s: String) -> [String] {
+        s.components(separatedBy: " and ").flatMap { $0.components(separatedBy: " & ") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     static func splitSentences(_ text: String) -> [String] {
@@ -299,27 +397,80 @@ public enum RecipeTextParser {
 
     // MARK: Title and type
 
-    static func title(from intro: [String], fallback: String?) -> String {
+    /// Words that name a dish, used to pick the dish out of a chatty opening ("Got the gravy ick? … Smoky mango
+    /// tofu tacos, really easy" is "Smoky Mango Tofu Tacos", not "Got the gravy ick": Ethan, 24 November 2026).
+    static let dishWords: Set<String> = [
+        "taco", "tacos", "curry", "pasta", "salad", "bowl", "bowls", "soup", "stew", "wrap", "wraps", "burger", "burgers",
+        "pizza", "noodles", "noodle", "stir", "fry", "chilli", "sandwich", "toastie", "bites", "traybake", "bake", "pie",
+        "risotto", "lasagne", "lasagna", "burrito", "burritos", "quesadilla", "quesadillas", "fajitas", "nachos", "gnocchi",
+        "dhal", "dal", "daal", "ramen", "pancakes", "oats", "cake", "cookies", "brownies", "bars", "smoothie", "omelette",
+        "frittata", "shakshuka", "tikka", "masala", "korma", "katsu", "biryani", "orzo", "dumplings", "gyoza", "kebab",
+        "kebabs", "skewers", "salsa", "dip", "hummus", "houmous", "pesto", "sauce", "dressing", "rolls", "tart", "muffins",
+        "granola", "porridge", "toast", "bagel", "flatbread", "flatbreads", "fritters", "patties", "meatballs", "falafel",
+        "enchiladas", "tostadas", "poke", "buddha", "rice", "casserole", "hash", "jacket", "loaded", "fries", "wings",
+        "nuggets", "goujons", "sliders", "bao", "pad", "laksa", "pho", "tagine", "gumbo", "jambalaya", "paella", "ragu",
+        "bolognese", "carbonara", "mac", "cheesecake", "crumble", "pudding", "flapjacks", "energy", "protein",
+    ]
+
+    /// The opening split into its sentences, each cut down to the part that could be a name.
+    static func titleCandidates(_ intro: [String]) -> [(text: String, question: Bool)] {
+        var out: [(String, Bool)] = []
         for raw in intro {
-            // An emoji usually ends the title ("Chicken fajita bowls 🌯 Only 520 cals").
-            var head = ""
-            for ch in raw {
-                if ch.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || ($0.properties.isEmoji && $0.value > 0x2000) }) {
-                    if head.trimmingCharacters(in: .whitespaces).count >= 3 { break } else { continue }
+            // Emoji and sentence ends both close a candidate ("Chicken fajita bowls 🌯 Only 520 cals").
+            var current = ""
+            func close(question: Bool) {
+                var t = IngredientParser.clean(current)
+                current = ""
+                for sep in [" | ", " – ", " - ", ", "] {
+                    guard let r = t.range(of: sep), t.distance(from: t.startIndex, to: r.lowerBound) >= 8 else { continue }
+                    // "Halloumi, pepper and rice bowl" keeps its comma; "Smoky mango tofu tacos, really easy" loses the chat.
+                    if sep == ", ", t[..<r.lowerBound].split(separator: " ").count < 2 { continue }
+                    t = String(t[..<r.lowerBound])
                 }
-                head.append(ch)
+                t = t.trimmingCharacters(in: CharacterSet(charactersIn: " !.:-–*\"'"))
+                if !t.isEmpty { out.append((t, question)) }
             }
-            var t = IngredientParser.clean(head)
-            for sep in [" | ", " – ", " - ", "! ", ". ", "?"] {
-                if let r = t.range(of: sep), t.distance(from: t.startIndex, to: r.lowerBound) >= 8 { t = String(t[..<r.lowerBound]) }
+            let chars = Array(raw)
+            for (i, ch) in chars.enumerated() {
+                if ch.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || ($0.properties.isEmoji && $0.value > 0x2000) }) {
+                    if current.trimmingCharacters(in: .whitespaces).count >= 3 { close(question: false) } else { current = "" }
+                    continue
+                }
+                let next = i + 1 < chars.count ? chars[i + 1] : " "
+                if ch == "?" { current.append(ch); close(question: true); continue }
+                if (ch == "!" || ch == "."), next == " ", current.trimmingCharacters(in: .whitespaces).count >= 8 {
+                    close(question: false); continue
+                }
+                current.append(ch)
             }
-            t = t.trimmingCharacters(in: CharacterSet(charactersIn: " !.:-–*\"'"))
-            if t.count >= 3 && t.count <= 70 && !isCallToAction(t.lowercased()) {
-                return titleCase(t)
-            }
+            close(question: false)
+        }
+        return out.map { (text: $0.0, question: $0.1) }
+    }
+
+    static func title(from intro: [String], fallback: String?) -> String {
+        let candidates = titleCandidates(intro).filter { c in
+            c.text.count >= 3 && c.text.count <= 70 && !isCallToAction(c.text.lowercased())
+        }
+        func words(_ t: String) -> [String] { FoodMatcher.tokens(t) }
+        // First choice: a short sentence that names a dish. Then the first sentence that isn't a question hook.
+        let dish = candidates.first { c in
+            !c.question && words(c.text).count <= 8 && c.text.lowercased().split(separator: " ").contains { dishWords.contains(String($0)) }
+        }
+        if let pick = dish ?? candidates.first(where: { !$0.question }) ?? candidates.first {
+            let t = pick.text.trimmingCharacters(in: CharacterSet(charactersIn: " ?"))
+            if t.count >= 3 { return titleCase(t) }
         }
         if let fallback, !fallback.isEmpty { return fallback }
         return "Imported recipe"
+    }
+
+    /// Whether a name is the caption's opening question rather than the dish ("Got the gravy ick?"), so an AI's
+    /// name taken from it can be swapped for Plate's own.
+    public static func isHook(_ name: String, in caption: String) -> Bool {
+        let n = name.trimmingCharacters(in: CharacterSet(charactersIn: " ?!.")).lowercased()
+        guard n.count >= 3 else { return false }
+        return titleCandidates(splitLines(caption)).contains { $0.question && $0.text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ?")) == n }
     }
 
     static func titleCase(_ s: String) -> String {
