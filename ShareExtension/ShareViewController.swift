@@ -23,6 +23,8 @@ final class ShareViewController: UIViewController {
 final class ShareModel: ObservableObject {
     enum Phase {
         case reading, found(Recipe), failed(String), saved, videoSaved, needsVideo(String), waiting
+        /// The caption says the recipe is in the creator's bio link.
+        case inBio, bioQueued
         /// Already in Plate. The fresh reading comes too when there was a recipe in it, so it can update the saved one.
         case duplicate(Recipe?, RecipeDuplicates.Match)
         case updated(String)
@@ -88,6 +90,8 @@ final class ShareModel: ObservableObject {
         let recipe = RecipeTextParser.parse(caption).recipe(source: RecipeSource(kind: kind, url: link, author: author))
         if let match = RecipeDuplicates.match(for: recipe, in: SavedRecipes.all()) {
             phase = .duplicate(recipe.ingredients.count >= 2 ? recipe : nil, match)
+        } else if recipe.ingredients.count < 2, link != nil, BioLink.mentionsBio(caption), platform == .instagram || platform == .tiktok {
+            phase = .inBio
         } else if recipe.ingredients.count < 2, link != nil {
             phase = .needsVideo("There's no recipe in the caption, so it must be in the video.")
         } else if recipe.ingredients.count < 2 {
@@ -108,6 +112,17 @@ final class ShareModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 self.close()
             }
+        } catch {
+            phase = .failed("Couldn't save it: \(error.localizedDescription)")
+        }
+    }
+
+    /// Hands the post to the app, which follows the creator's bio link to find the recipe when it opens.
+    func saveForBio() {
+        do {
+            try Inbox.append(PendingImport(link: link, caption: caption, author: author, recipe: nil,
+                                           thumbnail: thumbnail?.absoluteString, lookInBio: true))
+            phase = .bioQueued
         } catch {
             phase = .failed("Couldn't save it: \(error.localizedDescription)")
         }
@@ -184,6 +199,24 @@ struct ShareView: View {
                             .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         Button { model.saveForVideo() } label: { Label("Save link, add the video later", systemImage: "clock") }
                             .buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                case .inBio:
+                    VStack(spacing: 14) {
+                        Image(systemName: "link").font(.largeTitle).foregroundStyle(.green)
+                        Text("The caption says the recipe is in the creator's bio link.").font(.headline).multilineTextAlignment(.center)
+                        Text("Plate can follow the link and look for this recipe there when you next open it.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button { model.saveForBio() } label: { Label("Find it from the bio link", systemImage: "magnifyingglass") }
+                            .buttonStyle(.borderedProminent)
+                        Button { model.saveForVideo() } label: { Label("It's in the video: add the video later", systemImage: "film") }
+                    }
+                    .padding()
+                case .bioQueued:
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
+                        Text("Saved. Open Plate and it'll look for the recipe on the creator's bio link.").multilineTextAlignment(.center)
+                        Button("Done") { model.close() }.buttonStyle(.borderedProminent)
                     }
                     .padding()
                 case .waiting:

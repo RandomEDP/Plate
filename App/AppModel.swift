@@ -12,6 +12,8 @@ final class AppModel {
     }
     /// A short message shown at the top of the screen ("Saved Chicken fajitas from TikTok").
     var banner: String?
+    /// Why the last "recipe in bio" search came up empty, to show in place of "no recipe in the caption".
+    @ObservationIgnored var bioMiss: String?
     /// Reels and TikToks shared to Plate whose recipe is only in the video, waiting for a recording of it.
     var waitingVideos: [WaitingVideo] = []
     var selectedTab: Tab = .today
@@ -344,7 +346,11 @@ final class AppModel {
 
     func collectInbox() {
         waitingVideos = WaitingForVideo.all()
-        let items = Inbox.takeAll()
+        var items = Inbox.takeAll()
+        // Posts whose caption says "recipe in bio": looked for on the creator's bio link, one at a time.
+        let fromBio = items.filter { $0.recipe == nil && $0.lookInBio == true }
+        items.removeAll { $0.recipe == nil && $0.lookInBio == true }
+        if !fromBio.isEmpty { Task { await collectFromBio(fromBio) } }
         guard !items.isEmpty else { return }
         var names: [String] = []
         var updated: [String] = []

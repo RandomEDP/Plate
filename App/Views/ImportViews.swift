@@ -16,7 +16,24 @@ extension AppModel {
 
     /// Reads a caption into a recipe: Plate's own parsing, tidied by the AI when it's on (Plate's reading stands if the
     /// AI fails). Nil when there isn't a recipe in it. The second value names the AI that helped, if any.
-    func readRecipe(caption: String, link: String?, author: String?, platform: SocialImport.Platform?) async -> (Recipe, String?)? {
+    func readRecipe(caption: String, link: String?, author: String?, platform: SocialImport.Platform?,
+                    lookInBio: Bool = true) async -> (Recipe, String?)? {
+        bioMiss = nil
+        // "Recipe in bio": no recipe in the caption, so look on the creator's bio link (Ethan, 28 November 2026).
+        if lookInBio, let link, let url = URL(string: link), let platform, platform == .instagram || platform == .tiktok,
+           BioLink.mentionsBio(caption), !RecipeTextParser.parse(caption).looksLikeRecipe {
+            do {
+                let found = try await BioFinder.find(caption: caption, post: url, author: author, platform: platform)
+                if var (recipe, ai) = await readRecipe(caption: found.text, link: link, author: author, platform: platform, lookInBio: false) {
+                    recipe.summary = "Found on \(found.page.host ?? "the creator's website") through the bio link."
+                    await offerCover(found.image, for: recipe.id)
+                    return (recipe, ai)
+                }
+            } catch {
+                bioMiss = error.localizedDescription
+                return nil
+            }
+        }
         let kind: RecipeSourceKind = platform == .tiktok ? .tiktok : platform == .instagram ? .instagram : (link == nil ? .manual : .web)
         let source = RecipeSource(kind: kind, url: link, author: author)
         let parsed = RecipeTextParser.parse(caption)
@@ -95,7 +112,8 @@ extension AppModel {
     }
 
     struct NoRecipe: LocalizedError {
-        var errorDescription: String? { "No recipe in the caption. If it's only in the video, save the video and use Import → From a video." }
+        var why: String?
+        var errorDescription: String? { why ?? "No recipe in the caption. If it's only in the video, save the video and use Import → From a video." }
     }
 
     /// Fetches a link (an Osta recipe page, or an Instagram or TikTok caption) and reads the recipe from it.
@@ -116,7 +134,7 @@ extension AppModel {
             cover = c.thumbnail
         }
         guard let (recipe, _) = await readRecipe(caption: caption, link: url.absoluteString, author: author,
-                                                 platform: SocialImport.platform(of: url)) else { throw NoRecipe() }
+                                                 platform: SocialImport.platform(of: url)) else { throw NoRecipe(why: bioMiss) }
         await offerCover(cover, for: recipe.id)
         return recipe
     }
@@ -159,6 +177,26 @@ extension AppModel {
 }
 
 @MainActor enum ThinImportState { static var busy = false }
+
+extension AppModel {
+    /// Shared posts whose recipe is behind the creator's bio link: found and saved one by one.
+    func collectFromBio(_ items: [PendingImport]) async {
+        for item in items {
+            let platform = item.link.flatMap(URL.init(string:)).map(SocialImport.platform(of:))
+            banner = "Looking for the recipe on \(item.author.map { "@" + $0 } ?? "the creator")'s bio link…"
+            guard let (recipe, _) = await readRecipe(caption: item.caption, link: item.link, author: item.author, platform: platform) else {
+                banner = bioMiss ?? "Couldn't find the recipe from the bio link."
+                continue
+            }
+            if item.keepCopy != true, let match = RecipeDuplicates.match(for: recipe, in: household.recipes) {
+                banner = "You already have \(match.recipe.name)."
+                continue
+            }
+            save(recipe)
+            banner = "Saved \(recipe.name), found through the bio link"
+        }
+    }
+}
 
 @MainActor enum VideoInboxState { static var busy = false }
 
@@ -418,7 +456,7 @@ struct ImportRecipeView: View {
     /// post's cover; it's kept for the recipe and saved with it.
     func read(dish: FoundPhoto? = nil) async {
         guard let (recipe, ai) = await model.readRecipe(caption: caption, link: link, author: author, platform: platform) else {
-            self.error = "Couldn't find a recipe in that. If the recipe is only in the video, save the video and pick it below."
+            self.error = model.bioMiss ?? "Couldn't find a recipe in that. If the recipe is only in the video, save the video and pick it below."
             return
         }
         result = recipe
