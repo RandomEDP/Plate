@@ -82,6 +82,24 @@ final class OstaReader {
         return best
     }
 
+    /// Opens any page out of sight and gives its HTML once `ready` says the page's script has drawn what's wanted,
+    /// or whatever is there when the wait runs out. Used for Instagram profiles, whose bio link only appears once
+    /// the page's script has run.
+    static func html(_ url: URL, seconds: Int = 12, ready: (String) -> Bool) async throws -> String {
+        let reader = OstaReader()
+        defer { reader.close() }
+        try reader.open(url)
+        var last = ""
+        for _ in 0..<(seconds * 2) {
+            try? await Task.sleep(for: .milliseconds(500))
+            if let h = try? await reader.web.evaluateJavaScript("document.documentElement.outerHTML") as? String {
+                last = h
+                if ready(h) { return h }
+            }
+        }
+        return last
+    }
+
     let web: WKWebView
 
     private init() {

@@ -84,6 +84,8 @@ struct PendingImport: Codable, Identifiable {
     var replaces: UUID?
     /// Saved as a second copy on purpose, so the app doesn't skip it as a repeat.
     var keepCopy: Bool?
+    /// The caption says the recipe is in the creator's bio link: the app looks there when it opens.
+    var lookInBio: Bool?
 }
 
 /// The recipes already in Plate, as the share extension sees them: the saved household plus anything shared but not

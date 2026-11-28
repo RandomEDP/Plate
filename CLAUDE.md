@@ -62,7 +62,12 @@ gh workflow run ios.yml -R RandomEDP/Plate --ref main -f testflight=true        
   one line ("SMOKY TOFU: 1 block tofu, 1 tsp each of paprika and cumin, juice of 1/2 lime") are read by `inlineList`
   and `expandEach`; the title skips an opening question ("Got the gravy ick?") and prefers a short sentence naming a
   dish (`CaptionSectionsTests`, Ethan 24 November 2026). Instagram/TikTok recipes saved with almost nothing in them
-  are read again once from their links (`ImportRepair`, `AppModel.rereadThinImports`). `IngredientSplit` turns a line naming
+  are read again once from their links (`ImportRepair`, `AppModel.rereadThinImports`). A caption with no recipe that says "recipe in
+  bio" (`BioLink.mentionsBio`) sends `readRecipe` to `App/BioFinder.swift` (Ethan, 28 November 2026): the creator's
+  public profile (Instagram drawn in the hidden web view, as `l.instagram.com/?u=` links; TikTok's `bioLink`), then the
+  bio page's links ranked by the dish's words (`BioLink.rank`), the site's `?s=` search, and the page's schema.org
+  recipe card (`RecipeSchema.card`). Shops (cookbooks for sale) are never followed. The share sheet offers "Find it from
+  the bio link" (`PendingImport.lookInBio`, done by `AppModel.collectFromBio`). Tests: `BioLinkTests`. `IngredientSplit` turns a line naming
   two foods ("50g garlic and scallions") into two ingredients when a recipe is built, from Plate's parser or the AI. `UnitStandard` then puts each in the unit
   you'd count it in (garlic in cloves, onions and eggs by the piece, liquids in ml, no oz or cups), noting what the recipe
   said; weighed foods like chicken stay as written. Saved recipes were converted once (`standardiseSavedRecipeUnitsOnce`).
